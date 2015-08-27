@@ -12,3 +12,5 @@ docs/_templates/
 docs/*.html
 .fabfilerc
 version.py
+.idea/
+.python-env
