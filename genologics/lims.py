@@ -369,7 +369,7 @@ class Lims(object):
                 result.append(klass(self, uri=node.attrib['uri']))
             node = root.find('next-page')
             if node is None: break
-            root = self.get(node.attrib['uri'], params=params)
+            root = self.get(node.attrib['uri'])
         return result
 
     def get_batch(self, instances):
