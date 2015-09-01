@@ -108,7 +108,7 @@ class SampleHistory:
         and creates an entry like this : output -> (process, input)"""
         samp_art_map ={}
         if self.sample_name:
-            artifacts = self.lims.get_artifacts(sample_name = self.sample_name, type = 'Analyte', resolve=True) 
+            artifacts = self.lims.get_artifacts(sample_name = self.sample_name, type = 'Analyte', resolve=False) 
             for one_art in artifacts:
                 input_arts = one_art.input_artifact_list()
                 for input_art in input_arts:
@@ -126,7 +126,7 @@ class SampleHistory:
         history = {}
         hist_list = []
        #getting the list of all expected analytes.
-        artifacts = self.lims.get_artifacts(sample_name = self.sample_name, type = 'Analyte', resolve=True)
+        artifacts = self.lims.get_artifacts(sample_name = self.sample_name, type = 'Analyte', resolve=False)
         processes=[]
         inputs=[]
         if in_art:
@@ -608,9 +608,6 @@ class EntityListDescriptor(EntityDescriptor):
         for node in instance.root.findall(self.tag):
             result.append(self.klass(instance.lims, uri=node.attrib['uri']))
 
-        if self.tag == 'sample' and len(result) > 1:
-            instance.lims.get_batch(result)
-            
         return result
 
 class NestedAttributeListDescriptor(StringAttributeDescriptor):
@@ -975,7 +972,7 @@ class Process(Entity):
                     ins.append(inp)
         return ins
     
-    def all_inputs(self,unique=True, resolve=True):
+    def all_inputs(self,unique=True, resolve=False):
         """Retrieving all input artifacts from input_output_maps
         if unique is true, no duplicates are returned.
         """
@@ -992,7 +989,7 @@ class Process(Entity):
         else:
             return [Artifact(self.lims,id=id) for id in ids if id is not None]
 
-    def all_outputs(self,unique=True, resolve=True):
+    def all_outputs(self,unique=True, resolve=False):
         """Retrieving all output artifacts from input_output_maps
         if unique is true, no duplicates are returned.
         """
@@ -1108,10 +1105,10 @@ class StepActions(Entity):
     the Step entity. Right now, only the escalation is parsed."""
 
     def __init__(self, lims, uri=None, id=None):
-        self.lims=lims
-        self.uri="{0}/actions".format(uri)
-        self.root=lims.get(self.uri)
+        super(StepActions, self).__init__(lims,uri,id)
         self.escalation={}
+        self.lims=lims
+        self.root=self.lims.get(self.uri)
         for node in self.root.findall('escalation'):
             self.escalation['artifacts']=[]
             self.escalation['author']=Researcher(lims,uri=node.find('request').find('author').attrib.get('uri'))
@@ -1136,7 +1133,8 @@ class Step(Entity):
     def __init__(self, lims, uri=None, id=None):
         super(Step, self).__init__(lims,uri,id)
         assert self.uri is not None
-        self.actions= StepActions(lims,uri=self.uri)
+        actionsuri="{0}/actions".format(self.uri)
+        self.actions= StepActions(lims,uri=actionsuri)
 
 
     #placements         = EntityDescriptor('placements', StepPlacements)

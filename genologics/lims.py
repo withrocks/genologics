@@ -18,6 +18,7 @@ import requests
 
 from .entities import *
 
+TIMEOUT=16
 
 class Lims(object):
     "LIMS interface through which all entity instances are retrieved."
@@ -53,10 +54,16 @@ class Lims(object):
 
     def get(self, uri, params=dict()):
         "GET data from the URI. Return the response XML as an ElementTree."
-        r = self.request_session.get(uri, params=params,
+        try:
+            r = self.request_session.get(uri, params=params,
                          auth=(self.username, self.password),
-                         headers=dict(accept='application/xml'))
-        return self.parse_response(r)
+                         headers=dict(accept='application/xml'),
+                         timeout=TIMEOUT)
+        except requests.exceptions.Timeout as e:
+            raise type(e)("{0}, Error trying to reach {1}".format(e.message, uri))
+
+        else:
+            return self.parse_response(r)
 
     def get_file_contents(self, id=None, uri=None):
         """Returns the contents of the file of <ID> or <uri>"""
@@ -67,7 +74,7 @@ class Lims(object):
         else:
             raise ValueError("id or uri required")
         url = urlparse.urljoin(self.baseuri, '/'.join(segments))
-        r=self.request_session.get(url, auth=(self.username, self.password))
+        r=self.request_session.get(url, auth=(self.username, self.password), timeout=TIMEOUT)
         #TODO add a returncode check here 
         return r.text
 
@@ -378,17 +385,24 @@ class Lims(object):
             return []
         klass = instances[0].__class__
         root = ElementTree.Element(nsmap('ri:links'))
-        for instance in instances:
-            ElementTree.SubElement(root, 'link', dict(uri=instance.uri,
-                                                      rel=klass._URI))
-        uri = self.get_uri(klass._URI, 'batch/retrieve')
-        data = self.tostring(ElementTree.ElementTree(root))
-        root = self.post(uri, data)
         result = []
-        for node in root.getchildren():
-            instance = klass(self, uri=node.attrib['uri'])
-            instance.root = node
-            result.append(instance)
+        needs_request=False
+        for instance in instances:
+            try:
+                result.append(self.cache[instance.uri])
+            except:
+                needs_request=True
+                ElementTree.SubElement(root, 'link', dict(uri=instance.uri,
+                                                      rel=klass._URI))
+
+        if needs_request:
+            uri = self.get_uri(klass._URI, 'batch/retrieve')
+            data = self.tostring(ElementTree.ElementTree(root))
+            root = self.post(uri, data)
+            for node in root.getchildren():
+                instance = klass(self, uri=node.attrib['uri'])
+                instance.root = node
+                result.append(instance)
         return result
 
     def tostring(self, etree):

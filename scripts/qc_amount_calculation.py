@@ -45,7 +45,7 @@ def apply_calculations(lims,artifacts,udf1,op,udf2,result_udf,epp_logger,process
         logging.info(("Updating: Artifact id: {0}, "
                      "result_udf: {1}, udf1: {2}, "
                      "operator: {3}, udf2: {4}").format(artifact.id, 
-                                                        artifact.udf[result_udf],
+                                                        artifact.udf.get(result_udf,0),
                                                         artifact.udf[udf1],op,
                                                         artifact.udf[udf2]))
         prod = eval('{0}{1}{2}'.format(artifact.udf[udf1],op,artifact.udf[udf2]))

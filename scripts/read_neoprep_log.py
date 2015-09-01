@@ -2,6 +2,7 @@
 DESC="""EPP used to create csv files for the nanoprep robot"""
 import logging
 import os
+import sys
 
 from argparse import ArgumentParser
 from genologics.lims import Lims
@@ -9,13 +10,21 @@ from genologics.config import BASEURI,USERNAME,PASSWORD
 from genologics.entities import *
 from genologics.epp import attach_file
 
+from __future__ import print_function
+
 def read_log(lims, pid, logfile):
     logger=setupLog(logfile)
     pro=Process(lims, id=pid)
     f=None
     for out in pro.all_outputs():
         if out.type == "ResultFile" and out.name == "NeoPrep Output Log File":
-            fid=out.files[0].id
+            try:
+                fid=out.files[0].id
+            except IndexError:
+                logger.error("Can't find the machine log file")
+                print("Cannot find the NeoPrep Output Log File", file=sys.stderr)
+                exit(2)
+
             file_contents=lims.get_file_contents(id=fid)
             logger.info("Found the machine log file")
 

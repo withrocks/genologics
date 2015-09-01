@@ -13,4 +13,3 @@ docs/*.html
 .fabfilerc
 version.py
 .idea/
-.python-env
