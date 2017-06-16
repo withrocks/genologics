@@ -319,6 +319,9 @@ class UdfDictionary(object):
     def __iter__(self):
         return self
 
+    def next(self):
+        return self.__next__()
+
     def __next__(self):
         try:
             ret = list(self._lookup.keys())[self.location]
