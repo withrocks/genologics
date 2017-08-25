@@ -18,8 +18,21 @@ import time
 from xml.etree import ElementTree
 
 import logging
+import collections
 
 logger = logging.getLogger(__name__)
+
+
+# An entity can be in different "fetch states". This affects how the object's attributes
+# are loaded. The details of what these mean depends on the entity.
+# But generally the status is NONE if it hasn't been loaded at all, BASIC if it has been fetched
+# in some kind of overview and FETCH_STATE_FULL if it has been fully fetched from the object's
+# main REST endpoint (compare e.g. /api/v2/configuration/workflows/
+# and /api/v2/configuration/workflows/51)
+FETCH_STATE_NONE     = 0
+FETCH_STATE_OVERVIEW = 1
+FETCH_STATE_DETAILS  = 2
+FETCH_STATE_OVERVIEW_OR_DETAILS = FETCH_STATE_OVERVIEW | FETCH_STATE_DETAILS
 
 
 class BaseDescriptor(object):
@@ -34,8 +47,10 @@ class TagDescriptor(BaseDescriptor):
     represented by an XML element.
     """
 
-    def __init__(self, tag):
+    # TODO: we can default required_fetch_state if we want, but I want to be explicit to begin with
+    def __init__(self, tag, required_fetch_state):
         self.tag = tag
+        self.required_fetch_state = required_fetch_state
 
     def get_node(self, instance):
         if self.tag:
@@ -48,7 +63,6 @@ class StringDescriptor(TagDescriptor):
     """An instance attribute containing a string value
     represented by an XML element.
     """
-
     def __get__(self, instance, cls):
         instance.get()
         node = self.get_node(instance)
@@ -71,13 +85,12 @@ class StringAttributeDescriptor(TagDescriptor):
     """An instance attribute containing a string value
     represented by an XML attribute.
     """
-
     def __get__(self, instance, cls):
-        instance.get()
+        instance.get(self.fetch_state)  # TODO: Do we perhaps need both actual and required fetch_state?
         return instance.root.attrib[self.tag]
 
     def __set__(self, instance, value):
-        instance.get()
+        instance.get(self.fetch_state)
         instance.root.attrib[self.tag] = value
 
 
@@ -85,7 +98,6 @@ class StringListDescriptor(TagDescriptor):
     """An instance attribute containing a list of strings
     represented by multiple XML elements.
     """
-
     def __get__(self, instance, cls):
         instance.get()
         result = []
@@ -98,7 +110,6 @@ class StringDictionaryDescriptor(TagDescriptor):
     """An instance attribute containing a dictionary of string key/values
     represented by a hierarchical XML element.
     """
-
     def __get__(self, instance, cls):
         instance.get()
         result = dict()
@@ -134,7 +145,6 @@ class BooleanDescriptor(StringDescriptor):
     """An instance attribute containing a boolean value
     represented by an XMl element.
     """
-
     def __get__(self, instance, cls):
         text = super(BooleanDescriptor, self).__get__(instance, cls)
         if text is not None:
@@ -340,9 +350,10 @@ class UdfDictionaryDescriptor(BaseDescriptor):
     """
     _UDT = False
 
-    def __init__(self, *args):
+    def __init__(self, required_fetch_status, *args):
         super(BaseDescriptor, self).__init__()
         self.rootkeys = args
+        self.required_fetch_status = required_fetch_status
 
     def __get__(self, instance, cls):
         instance.get()
@@ -369,7 +380,6 @@ class PlacementDictionaryDescriptor(TagDescriptor):
     """An instance attribute containing a dictionary of locations
     keys and artifact values represented by multiple XML elements.
     """
-
     def __get__(self, instance, cls):
         from genologics.entities import Artifact
         instance.get()
@@ -396,8 +406,8 @@ class ExternalidListDescriptor(BaseDescriptor):
 class EntityDescriptor(TagDescriptor):
     "An instance attribute referencing another entity instance."
 
-    def __init__(self, tag, klass):
-        super(EntityDescriptor, self).__init__(tag)
+    def __init__(self, tag, klass, required_fetch_state):
+        super(EntityDescriptor, self).__init__(tag, required_fetch_state)
         self.klass = klass
 
     def __get__(self, instance, cls):
@@ -435,11 +445,10 @@ class EntityListDescriptor(EntityDescriptor):
 class NestedAttributeListDescriptor(StringAttributeDescriptor):
     """An instance yielding a list of dictionnaries of attributes
        for a nested xml list of XML elements"""
-
-    def __init__(self, tag, *args):
-        super(StringAttributeDescriptor, self).__init__(tag)
+    def __init__(self, tag, rootkeys, required_fetch_state):
+        super(StringAttributeDescriptor, self).__init__(tag, required_fetch_state)
         self.tag = tag
-        self.rootkeys = args
+        self.rootkeys = rootkeys
 
     def __get__(self, instance, cls):
         instance.get()
@@ -456,10 +465,10 @@ class NestedStringListDescriptor(StringListDescriptor):
     """An instance yielding a list of strings
         for a nested list of xml elements"""
 
-    def __init__(self, tag, *args):
-        super(StringListDescriptor, self).__init__(tag)
+    def __init__(self, tag, rootkeys, required_fetch_state):
+        super(StringListDescriptor, self).__init__(tag, required_fetch_state)
         self.tag = tag
-        self.rootkeys = args
+        self.rootkeys = rootkeys
 
     def __get__(self, instance, cls):
         instance.get()
@@ -475,11 +484,11 @@ class NestedStringListDescriptor(StringListDescriptor):
 class NestedEntityListDescriptor(EntityListDescriptor):
     """same as EntityListDescriptor, but works on nested elements"""
 
-    def __init__(self, tag, klass, *args):
-        super(EntityListDescriptor, self).__init__(tag, klass)
+    def __init__(self, tag, klass, rootkeys, required_fetch_state):
+        super(EntityListDescriptor, self).__init__(tag, klass, required_fetch_state)
         self.klass = klass
         self.tag = tag
-        self.rootkeys = args
+        self.rootkeys = rootkeys if isinstance(rootkeys, list) else [rootkeys]
 
     def __get__(self, instance, cls):
         instance.get()
@@ -488,7 +497,7 @@ class NestedEntityListDescriptor(EntityListDescriptor):
         for rootkey in self.rootkeys:
             rootnode = rootnode.find(rootkey)
         for node in rootnode.findall(self.tag):
-            result.append(self.klass(instance.lims, uri=node.attrib['uri']))
+            result.append(self.klass(instance.lims, uri=node.attrib['uri'], fetch_state=self.fetch_state))
         return result
 
 
@@ -496,7 +505,6 @@ class DimensionDescriptor(TagDescriptor):
     """An instance attribute containing a dictionary specifying
     the properties of a dimension of a container type.
     """
-
     def __get__(self, instance, cls):
         instance.get()
         node = instance.root.find(self.tag)
@@ -509,7 +517,6 @@ class LocationDescriptor(TagDescriptor):
     """An instance attribute containing a tuple (container, value)
     specifying the location of an analyte in a container.
     """
-
     def __get__(self, instance, cls):
         from genologics.entities import Container
         instance.get()

@@ -6,12 +6,7 @@ Per Kraulis, Science for Life Laboratory, Stockholm, Sweden.
 Copyright (C) 2012 Per Kraulis
 """
 
-from genologics.constants import nsmap
-from genologics.descriptors import StringDescriptor, StringDictionaryDescriptor, UdfDictionaryDescriptor, \
-    UdtDictionaryDescriptor, ExternalidListDescriptor, EntityDescriptor, BooleanDescriptor, EntityListDescriptor, \
-    StringAttributeDescriptor, StringListDescriptor, DimensionDescriptor, IntegerDescriptor, \
-    PlacementDictionaryDescriptor, InputOutputMapList, LocationDescriptor, ReagentLabelList, NestedEntityListDescriptor, \
-    NestedStringListDescriptor, NestedAttributeListDescriptor, IntegerAttributeDescriptor
+from genologics.descriptors import *
 
 try:
     from urllib.parse import urlsplit, urlparse, parse_qs, urlunparse
@@ -236,7 +231,10 @@ class Entity(object):
     _URI = None
     _PREFIX = None
 
-    def __new__(cls, lims, uri=None, id=None, _create_new=False):
+    # FORK TODO: In order to make it easier to reuse the class, changing this to a static factory method. Otherwise there is
+    # no way of initializing this class without using the cache, which may or may not be the intended behaviour.
+    def __new__(cls, lims, uri=None, id=None, _create_new=False, fetch_state=FETCH_STATE_NONE):
+        logging.debug("__new__ for {}".format(cls))
         if not uri:
             if id:
                 uri = lims.get_uri(cls._URI, id)
@@ -246,21 +244,26 @@ class Entity(object):
             else:
                 raise ValueError("Entity uri and id can't be both None")
         try:
+            logging.debug("Trying to fetch {} from cache".format(uri))
             return lims.cache[uri]
         except KeyError:
+            logging.debug("The object is not in cache")
             return object.__new__(cls)
 
-    def __init__(self, lims, uri=None, id=None, _create_new=False):
+    def __init__(self, lims, uri=None, id=None, _create_new=False, fetch_state=FETCH_STATE_NONE):
         assert uri or id or _create_new
         if not _create_new:
             if hasattr(self, 'lims'): return
             if not uri:
                 uri = lims.get_uri(self._URI, id)
+            logging.debug("Caching {}".format(uri))
             lims.cache[uri] = self
             self.root = None
         self.lims = lims
         self._uri = uri
         self.root = None
+        self.fetch_state = fetch_state
+        logging.debug("Initializing {} from {}, fetch_state={}".format(self.__class__, uri, fetch_state))
 
     def __str__(self):
         return "%s(%s)" % (self.__class__.__name__, self.id)
@@ -281,10 +284,15 @@ class Entity(object):
         parts = urlsplit(self.uri)
         return parts.path.split('/')[-1]
 
-    def get(self, force=False):
-        "Get the XML data for this instance."
-        if not force and self.root is not None: return
+    def get(self, force=False, required_fetch_state=None):
+        """Get the XML data for this instance."""
+        # FORK: We ignore the `root` element for this check now and only check the fetch_state, which contains
+        # more details about the state of the entity.
+        assert required_fetch_state is not None  # TODO!
+        if not force and self.fetch_state == required_fetch_state:
+            return
         self.root = self.lims.get(self.uri)
+        self.fetch_state = FETCH_STATE_DETAILS
 
     def put(self):
         "Save this instance by doing PUT of its serialized XML."
@@ -330,13 +338,14 @@ class Lab(Entity):
     _URI = 'labs'
     _PREFIX = 'lab'
 
-    name             = StringDescriptor('name')
-    billing_address  = StringDictionaryDescriptor('billing-address')
-    shipping_address = StringDictionaryDescriptor('shipping-address')
-    udf              = UdfDictionaryDescriptor()
-    udt              = UdtDictionaryDescriptor()
-    externalids      = ExternalidListDescriptor()
-    website          = StringDescriptor('website')
+    # TODO: This has not been fully tested in snp&seq, most of these fields are not filled in in our case
+    name             = StringDescriptor('name', FETCH_STATE_OVERVIEW_OR_DETAILS)
+    billing_address  = StringDictionaryDescriptor('billing-address', FETCH_STATE_DETAILS)
+    shipping_address = StringDictionaryDescriptor('shipping-address', FETCH_STATE_DETAILS)
+    udf              = UdfDictionaryDescriptor(FETCH_STATE_DETAILS)  # TODO: This goes no before the list of elements, which looks worse
+    udt              = UdtDictionaryDescriptor(FETCH_STATE_DETAILS)
+    externalids      = ExternalidListDescriptor()  # TODO: No fetch status
+    website          = StringDescriptor('website', FETCH_STATE_DETAILS)
 
 
 class Researcher(Entity):
@@ -345,15 +354,15 @@ class Researcher(Entity):
     _URI = 'researchers'
     _PREFIX = 'res'
 
-    first_name  = StringDescriptor('first-name')
-    last_name   = StringDescriptor('last-name')
-    phone       = StringDescriptor('phone')
-    fax         = StringDescriptor('fax')
-    email       = StringDescriptor('email')
-    initials    = StringDescriptor('initials')
-    lab         = EntityDescriptor('lab', Lab)
-    udf         = UdfDictionaryDescriptor()
-    udt         = UdtDictionaryDescriptor()
+    first_name  = StringDescriptor('first-name', FETCH_STATE_OVERVIEW_OR_DETAILS)
+    last_name   = StringDescriptor('last-name', FETCH_STATE_OVERVIEW_OR_DETAILS)
+    phone       = StringDescriptor('phone', FETCH_STATE_DETAILS)  # TODO: Test
+    fax         = StringDescriptor('fax', FETCH_STATE_DETAILS)
+    email       = StringDescriptor('email', FETCH_STATE_DETAILS)
+    initials    = StringDescriptor('initials', FETCH_STATE_DETAILS)
+    lab         = EntityDescriptor('lab', Lab, FETCH_STATE_DETAILS)
+    udf         = UdfDictionaryDescriptor(FETCH_STATE_DETAILS)
+    udt         = UdtDictionaryDescriptor(FETCH_STATE_DETAILS)
     externalids = ExternalidListDescriptor()
 
     # credentials XXX
@@ -365,22 +374,31 @@ class Researcher(Entity):
 
 class Reagent_label(Entity):
     """Reagent label element"""
-    reagent_label = StringDescriptor('reagent-label')
+    def __init__(self):
+        # NOMERGE
+        raise NotImplementedError("Using reagent label, look into the use of fetch state")
+    reagent_label = StringDescriptor('reagent-label', FETCH_STATE_OVERVIEW_OR_DETAILS)
 
 
 class Note(Entity):
-    "Note attached to a project or a sample."
+    """Note attached to a project or a sample."""
+    def __init__(self):
+        # NOMERGE
+        raise NotImplementedError("Using note, look into the use of fetch state")
 
-    content = StringDescriptor(None)  # root element
+    content = StringDescriptor(None, FETCH_STATE_OVERVIEW_OR_DETAILS)  # root element
 
 
 class File(Entity):
     "File attached to a project or a sample."
+    def __init__(self):
+        # NOMERGE
+        raise NotImplementedError("Using note, look into the use of fetch state")
 
-    attached_to       = StringDescriptor('attached-to')
-    content_location  = StringDescriptor('content-location')
-    original_location = StringDescriptor('original-location')
-    is_published      = BooleanDescriptor('is-published')
+    attached_to       = StringDescriptor('attached-to', FETCH_STATE_OVERVIEW)
+    content_location  = StringDescriptor('content-location', FETCH_STATE_OVERVIEW)
+    original_location = StringDescriptor('original-location', FETCH_STATE_OVERVIEW)
+    is_published      = BooleanDescriptor('is-published', FETCH_STATE_OVERVIEW)
 
 
 class Project(Entity):
@@ -389,14 +407,14 @@ class Project(Entity):
     _URI = 'projects'
     _PREFIX = 'prj'
 
-    name         = StringDescriptor('name')
-    open_date    = StringDescriptor('open-date')
-    close_date   = StringDescriptor('close-date')
-    invoice_date = StringDescriptor('invoice-date')
-    researcher   = EntityDescriptor('researcher', Researcher)
-    udf          = UdfDictionaryDescriptor()
-    udt          = UdtDictionaryDescriptor()
-    files        = EntityListDescriptor(nsmap('file:file'), File)
+    name         = StringDescriptor('name', FETCH_STATE_OVERVIEW_OR_DETAILS)
+    open_date    = StringDescriptor('open-date', FETCH_STATE_DETAILS)
+    close_date   = StringDescriptor('close-date', FETCH_STATE_DETAILS)
+    invoice_date = StringDescriptor('invoice-date', FETCH_STATE_DETAILS)
+    researcher   = EntityDescriptor('researcher', Researcher, FETCH_STATE_DETAILS)
+    udf          = UdfDictionaryDescriptor(FETCH_STATE_DETAILS)
+    udt          = UdtDictionaryDescriptor(FETCH_STATE_DETAILS)
+    files        = EntityListDescriptor(nsmap('file:file'), File, FETCH_STATE_DETAILS)
     externalids  = ExternalidListDescriptor()
     # permissions XXX
 
@@ -407,16 +425,16 @@ class Sample(Entity):
     _URI = 'samples'
     _PREFIX = 'smp'
 
-    name           = StringDescriptor('name')
-    date_received  = StringDescriptor('date-received')
-    date_completed = StringDescriptor('date-completed')
-    project        = EntityDescriptor('project', Project)
-    submitter      = EntityDescriptor('submitter', Researcher)
+    name           = StringDescriptor('name', FETCH_STATE_DETAILS)
+    date_received  = StringDescriptor('date-received', FETCH_STATE_DETAILS)
+    date_completed = StringDescriptor('date-completed', FETCH_STATE_DETAILS)
+    project        = EntityDescriptor('project', Project, FETCH_STATE_DETAILS)
+    submitter      = EntityDescriptor('submitter', Researcher, FETCH_STATE_DETAILS)
     # artifact: defined below
-    udf            = UdfDictionaryDescriptor()
-    udt            = UdtDictionaryDescriptor()
-    notes          = EntityListDescriptor('note', Note)
-    files          = EntityListDescriptor(nsmap('file:file'), File)
+    udf            = UdfDictionaryDescriptor(FETCH_STATE_DETAILS)
+    udt            = UdtDictionaryDescriptor(FETCH_STATE_DETAILS)
+    notes          = EntityListDescriptor('note', Note, FETCH_STATE_DETAILS)
+    files          = EntityListDescriptor(nsmap('file:file'), File, FETCH_STATE_DETAILS)
     externalids    = ExternalidListDescriptor()
     # biosource XXX
 
@@ -445,11 +463,11 @@ class Containertype(Entity):
     _URI = 'containertypes'
     _PREFIX = 'ctp'
 
-    name              = StringAttributeDescriptor('name')
-    calibrant_wells   = StringListDescriptor('calibrant-well')
-    unavailable_wells = StringListDescriptor('unavailable-well')
-    x_dimension       = DimensionDescriptor('x-dimension')
-    y_dimension       = DimensionDescriptor('y-dimension')
+    name              = StringAttributeDescriptor('name', FETCH_STATE_OVERVIEW_OR_DETAILS)
+    calibrant_wells   = StringListDescriptor('calibrant-well', FETCH_STATE_DETAILS)
+    unavailable_wells = StringListDescriptor('unavailable-well', FETCH_STATE_DETAILS)
+    x_dimension       = DimensionDescriptor('x-dimension', FETCH_STATE_DETAILS)
+    y_dimension       = DimensionDescriptor('y-dimension', FETCH_STATE_DETAILS)
 
 
 class Container(Entity):
@@ -458,13 +476,13 @@ class Container(Entity):
     _URI = 'containers'
     _PREFIX = 'con'
 
-    name           = StringDescriptor('name')
-    type           = EntityDescriptor('type', Containertype)
-    occupied_wells = IntegerDescriptor('occupied-wells')
-    placements     = PlacementDictionaryDescriptor('placement')
-    udf            = UdfDictionaryDescriptor()
-    udt            = UdtDictionaryDescriptor()
-    state          = StringDescriptor('state')
+    name           = StringDescriptor('name', FETCH_STATE_OVERVIEW_OR_DETAILS)
+    type           = EntityDescriptor('type', Containertype, FETCH_STATE_DETAILS)
+    occupied_wells = IntegerDescriptor('occupied-wells', FETCH_STATE_DETAILS)
+    placements     = PlacementDictionaryDescriptor('placement', FETCH_STATE_DETAILS)
+    udf            = UdfDictionaryDescriptor(FETCH_STATE_DETAILS)
+    udt            = UdtDictionaryDescriptor(FETCH_STATE_DETAILS)
+    state          = StringDescriptor('state', FETCH_STATE_DETAILS)
 
     def get_placements(self):
         """Get the dictionary of locations and artifacts
@@ -479,8 +497,10 @@ class Processtype(Entity):
     _URI = 'processtypes'
     _PREFIX = 'ptp'
 
-    name = StringAttributeDescriptor('name')
+    name = StringAttributeDescriptor('name', FETCH_STATE_OVERVIEW_OR_DETAILS)
     # XXX
+
+    # TODO! Missing a bunch from the details view. Write while testing
 
 
 class Udfconfig(Entity):
@@ -898,6 +918,7 @@ class Protocol(Entity):
 
     steps      = NestedEntityListDescriptor('step', ProtocolStep, 'steps')
     properties = NestedAttributeListDescriptor('protocol-property', 'protocol-properties')
+    name       = StringAttributeDescriptor('name')
 
 
 class Stage(Entity):
@@ -913,8 +934,8 @@ class Workflow(Entity):
     _URI = "configuration/workflows"
     _TAG = "workflow"
 
-    name      = StringAttributeDescriptor("name")
-    status    = StringAttributeDescriptor("status")
+    name      = StringAttributeDescriptor("name", required_fetch_state=FETCH_STATE_OVERVIEW_OR_DETAILS)
+    status    = StringAttributeDescriptor("status", required_fetch_state=FETCH_STATE_OVERVIEW_OR_DETAILS)
     protocols = NestedEntityListDescriptor('protocol', Protocol, 'protocols')
     stages    = NestedEntityListDescriptor('stage', Stage, 'stages')
 
@@ -945,6 +966,13 @@ class Queue(Entity):
     _PREFIX = "que"
 
     artifacts=NestedEntityListDescriptor("artifact", Artifact, "artifacts")
+
+
+class Version(Entity):
+    minor = StringDescriptor('minor')
+    major = StringDescriptor('major')
+    uri = StringDescriptor('uri')  # TODO: Builtin?
+
 
 Sample.artifact          = EntityDescriptor('artifact', Artifact)
 StepActions.step         = EntityDescriptor('step', Step)
