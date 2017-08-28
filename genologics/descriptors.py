@@ -37,6 +37,8 @@ FETCH_STATE_OVERVIEW_OR_DETAILS = FETCH_STATE_OVERVIEW | FETCH_STATE_DETAILS
 
 class BaseDescriptor(object):
     "Abstract base descriptor for an instance attribute."
+    def __init__(self, required_fetch_state):
+        self.required_fetch_state = required_fetch_state  #TODO: Both defined here and in TagDescriptor
 
     def __get__(self, instance, cls):
         raise NotImplementedError
@@ -57,6 +59,10 @@ class TagDescriptor(BaseDescriptor):
             return instance.root.find(self.tag)
         else:
             return instance.root
+
+    def refresh(self, instance):
+        """Updates the descriptor if required"""
+        instance.get(required_fetch_state=self.required_fetch_state)
 
 
 class StringDescriptor(TagDescriptor):
@@ -86,12 +92,20 @@ class StringAttributeDescriptor(TagDescriptor):
     represented by an XML attribute.
     """
     def __get__(self, instance, cls):
-        instance.get(self.fetch_state)  # TODO: Do we perhaps need both actual and required fetch_state?
-        return instance.root.attrib[self.tag]
+        # Gets the item from the descriptor, loading the object if required
+        self.refresh(instance)
+        return self.get_from_node(instance.root)
 
     def __set__(self, instance, value):
-        instance.get(self.fetch_state)
-        instance.root.attrib[self.tag] = value
+        # Sets the item, loading the object if required (lazy-loading)
+        self.refresh(instance)
+        self.set_node_to(instance.root, value)
+
+    def get_from_node(self, node):
+        return node.attrib[self.tag]
+
+    def set_node_to(self, node, value):
+        node.attrib[self.tag] = value
 
 
 class StringListDescriptor(TagDescriptor):
@@ -138,7 +152,10 @@ class IntegerAttributeDescriptor(TagDescriptor):
 
     def __get__(self, instance, cls):
         instance.get()
-        return int(instance.root.attrib[self.tag])
+        return self.get_from_node(instance.root)
+
+    def get_from_node(self, node):
+        return int(node.attrib[self.tag])
 
 
 class BooleanDescriptor(StringDescriptor):
@@ -489,16 +506,39 @@ class NestedEntityListDescriptor(EntityListDescriptor):
         self.klass = klass
         self.tag = tag
         self.rootkeys = rootkeys if isinstance(rootkeys, list) else [rootkeys]
+        assert self.required_fetch_state > 0
 
     def __get__(self, instance, cls):
-        instance.get()
+        instance.get(required_fetch_state=self.required_fetch_state)
         result = []
         rootnode = instance.root
         for rootkey in self.rootkeys:
             rootnode = rootnode.find(rootkey)
         for node in rootnode.findall(self.tag):
-            result.append(self.klass(instance.lims, uri=node.attrib['uri'], fetch_state=self.fetch_state))
+            child_instance = self.create_from_overview_node(instance, node)
+            result.append(child_instance)
         return result
+
+    # TODO: In superclass or somewhere else?!
+    def create_from_overview_node(self, parent_obj, node):
+        # The fetch state we're in:
+        fetch_state = FETCH_STATE_OVERVIEW
+        instance = self.klass(parent_obj.lims, uri=node.attrib['uri'], fetch_state=fetch_state)
+        instance.root = node
+
+        # Initialize based on this node, here we turn the descriptors around and use them to query for
+        # the data in the XML, but when accessing the descriptors directly, the descriptor fetches from the XML.
+        # So now the descriptors are both used for metadata and as lazy properties
+        for attr, descriptor in self.klass.__dict__.items():
+            if attr.startswith("_"):
+                continue
+            # TODO: Allow the descriptor to have something else than required_fetch_state, i.e. try catch
+            can_update = fetch_state & descriptor.required_fetch_state != 0
+            if can_update:
+                # Use the parsing built into the descriptor to get the value. NOTE: This is really backwards!
+                val = descriptor.get_from_node(node)
+                descriptor.__set__(instance, val)
+        return instance
 
 
 class DimensionDescriptor(TagDescriptor):
@@ -527,7 +567,6 @@ class LocationDescriptor(TagDescriptor):
 
 class ReagentLabelList(BaseDescriptor):
     """An instance attribute yielding a list of reagent labels"""
-
     def __get__(self, instance, cls):
         instance.get()
         self.value = []
@@ -545,9 +584,10 @@ class InputOutputMapList(BaseDescriptor):
     maps of a Process instance.
     """
 
-    def __init__(self, *args):
+    def __init__(self, required_fetch_state, *args):
         super(BaseDescriptor, self).__init__()
         self.rootkeys = args
+        self.required_fetch_state = required_fetch_state
 
     def __get__(self, instance, cls):
         instance.get()

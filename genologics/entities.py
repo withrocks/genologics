@@ -243,12 +243,17 @@ class Entity(object):
                 pass
             else:
                 raise ValueError("Entity uri and id can't be both None")
-        try:
-            logging.debug("Trying to fetch {} from cache".format(uri))
-            return lims.cache[uri]
-        except KeyError:
-            logging.debug("The object is not in cache")
+        # TODO: keep the cache out of the object
+        if lims.cache:
+            try:
+                logging.debug("Trying to fetch {} from cache".format(uri))
+                return lims.cache[uri]
+            except KeyError:
+                logging.debug("The object is not in cache")
+                return object.__new__(cls)
+        else:
             return object.__new__(cls)
+
 
     def __init__(self, lims, uri=None, id=None, _create_new=False, fetch_state=FETCH_STATE_NONE):
         assert uri or id or _create_new
@@ -257,7 +262,8 @@ class Entity(object):
             if not uri:
                 uri = lims.get_uri(self._URI, id)
             logging.debug("Caching {}".format(uri))
-            lims.cache[uri] = self
+            if lims.cache:
+                lims.cache[uri] = self
             self.root = None
         self.lims = lims
         self._uri = uri
@@ -288,8 +294,8 @@ class Entity(object):
         """Get the XML data for this instance."""
         # FORK: We ignore the `root` element for this check now and only check the fetch_state, which contains
         # more details about the state of the entity.
-        assert required_fetch_state is not None  # TODO!
-        if not force and self.fetch_state == required_fetch_state:
+        assert FETCH_STATE_NONE < required_fetch_state <= FETCH_STATE_OVERVIEW_OR_DETAILS  # TODO!
+        if not force and (self.fetch_state & required_fetch_state != 0):  # TODO: Review bitwise logic
             return
         self.root = self.lims.get(self.uri)
         self.fetch_state = FETCH_STATE_DETAILS
@@ -344,7 +350,7 @@ class Lab(Entity):
     shipping_address = StringDictionaryDescriptor('shipping-address', FETCH_STATE_DETAILS)
     udf              = UdfDictionaryDescriptor(FETCH_STATE_DETAILS)  # TODO: This goes no before the list of elements, which looks worse
     udt              = UdtDictionaryDescriptor(FETCH_STATE_DETAILS)
-    externalids      = ExternalidListDescriptor()  # TODO: No fetch status
+    externalids      = ExternalidListDescriptor(FETCH_STATE_DETAILS)
     website          = StringDescriptor('website', FETCH_STATE_DETAILS)
 
 
@@ -363,7 +369,7 @@ class Researcher(Entity):
     lab         = EntityDescriptor('lab', Lab, FETCH_STATE_DETAILS)
     udf         = UdfDictionaryDescriptor(FETCH_STATE_DETAILS)
     udt         = UdtDictionaryDescriptor(FETCH_STATE_DETAILS)
-    externalids = ExternalidListDescriptor()
+    externalids = ExternalidListDescriptor(FETCH_STATE_DETAILS)
 
     # credentials XXX
 
@@ -415,7 +421,7 @@ class Project(Entity):
     udf          = UdfDictionaryDescriptor(FETCH_STATE_DETAILS)
     udt          = UdtDictionaryDescriptor(FETCH_STATE_DETAILS)
     files        = EntityListDescriptor(nsmap('file:file'), File, FETCH_STATE_DETAILS)
-    externalids  = ExternalidListDescriptor()
+    externalids  = ExternalidListDescriptor(FETCH_STATE_DETAILS)
     # permissions XXX
 
 
@@ -435,7 +441,7 @@ class Sample(Entity):
     udt            = UdtDictionaryDescriptor(FETCH_STATE_DETAILS)
     notes          = EntityListDescriptor('note', Note, FETCH_STATE_DETAILS)
     files          = EntityListDescriptor(nsmap('file:file'), File, FETCH_STATE_DETAILS)
-    externalids    = ExternalidListDescriptor()
+    externalids    = ExternalidListDescriptor(FETCH_STATE_DETAILS)
     # biosource XXX
 
 
@@ -504,21 +510,25 @@ class Processtype(Entity):
 
 
 class Udfconfig(Entity):
-    "Instance of field type (cnf namespace)."
+    """Instance of field type (cnf namespace)."""
     _URI = 'configuration/udfs'
 
-    name                          = StringDescriptor('name')
-    attach_to_name                = StringDescriptor('attach-to-name')
-    attach_to_category            = StringDescriptor('attach-to-category')
-    show_in_lablink               = BooleanDescriptor('show-in-lablink')
-    allow_non_preset_values       = BooleanDescriptor('allow-non-preset-values')
-    first_preset_is_default_value = BooleanDescriptor('first-preset-is-default-value')
-    show_in_tables                = BooleanDescriptor('show-in-tables')
-    is_editable                   = BooleanDescriptor('is-editable')
-    is_deviation                  = BooleanDescriptor('is-deviation') 
-    is_controlled_vocabulary      = BooleanDescriptor('is-controlled-vocabulary')
-    presets                       = StringListDescriptor('preset') 
+    # TODO: This currently supports only fetching from the details view, because the same values would be
+    # fetched from attributes in the overview(!) Solve this by creating a new descriptor that can use either.
 
+    # So these three need a new descriptor
+    name                          = StringDescriptor('name', FETCH_STATE_OVERVIEW_OR_DETAILS)
+    attach_to_name                = StringDescriptor('attach-to-name', FETCH_STATE_OVERVIEW_OR_DETAILS)
+    attach_to_category            = StringDescriptor('attach-to-category', FETCH_STATE_OVERVIEW_OR_DETAILS)
+
+    show_in_lablink               = BooleanDescriptor('show-in-lablink', FETCH_STATE_DETAILS)
+    allow_non_preset_values       = BooleanDescriptor('allow-non-preset-values', FETCH_STATE_DETAILS)
+    first_preset_is_default_value = BooleanDescriptor('first-preset-is-default-value', FETCH_STATE_DETAILS)
+    show_in_tables                = BooleanDescriptor('show-in-tables', FETCH_STATE_DETAILS)
+    is_editable                   = BooleanDescriptor('is-editable', FETCH_STATE_DETAILS)
+    is_deviation                  = BooleanDescriptor('is-deviation', FETCH_STATE_DETAILS)
+    is_controlled_vocabulary      = BooleanDescriptor('is-controlled-vocabulary', FETCH_STATE_DETAILS)
+    presets                       = StringListDescriptor('preset', FETCH_STATE_DETAILS)
 
 
 class Process(Entity):
@@ -527,15 +537,15 @@ class Process(Entity):
     _URI = 'processes'
     _PREFIX = 'prc'
 
-    type              = EntityDescriptor('type', Processtype)
-    date_run          = StringDescriptor('date-run')
-    technician        = EntityDescriptor('technician', Researcher)
-    protocol_name     = StringDescriptor('protocol-name')
-    input_output_maps = InputOutputMapList()
-    udf               = UdfDictionaryDescriptor()
-    udt               = UdtDictionaryDescriptor()
-    files             = EntityListDescriptor(nsmap('file:file'), File)
-    process_parameter = StringDescriptor('process-parameter')
+    type              = EntityDescriptor('type', Processtype, FETCH_STATE_DETAILS)
+    date_run          = StringDescriptor('date-run', FETCH_STATE_DETAILS)
+    technician        = EntityDescriptor('technician', Researcher, FETCH_STATE_DETAILS)
+    protocol_name     = StringDescriptor('protocol-name', FETCH_STATE_DETAILS)
+    input_output_maps = InputOutputMapList(FETCH_STATE_DETAILS)
+    udf               = UdfDictionaryDescriptor(FETCH_STATE_DETAILS)
+    udt               = UdtDictionaryDescriptor(FETCH_STATE_DETAILS)
+    files             = EntityListDescriptor(nsmap('file:file'), File, FETCH_STATE_DETAILS)
+    process_parameter = StringDescriptor('process-parameter', FETCH_STATE_DETAILS)
 
     # instrument XXX
     # process_parameters XXX
@@ -641,19 +651,19 @@ class Artifact(Entity):
     _URI = 'artifacts'
     _PREFIX = 'art'
 
-    name           = StringDescriptor('name')
-    type           = StringDescriptor('type')
-    output_type    = StringDescriptor('output-type')
-    parent_process = EntityDescriptor('parent-process', Process)
-    volume         = StringDescriptor('volume')
-    concentration  = StringDescriptor('concentration')
-    qc_flag        = StringDescriptor('qc-flag')
-    location       = LocationDescriptor('location')
-    working_flag   = BooleanDescriptor('working-flag')
-    samples        = EntityListDescriptor('sample', Sample)
-    udf            = UdfDictionaryDescriptor()
-    files          = EntityListDescriptor(nsmap('file:file'), File)
-    reagent_labels = ReagentLabelList()
+    name           = StringDescriptor('name', FETCH_STATE_DETAILS)
+    type           = StringDescriptor('type', FETCH_STATE_DETAILS)
+    output_type    = StringDescriptor('output-type', FETCH_STATE_DETAILS)
+    parent_process = EntityDescriptor('parent-process', Process, FETCH_STATE_DETAILS)
+    volume         = StringDescriptor('volume', FETCH_STATE_DETAILS)
+    concentration  = StringDescriptor('concentration', FETCH_STATE_DETAILS)
+    qc_flag        = StringDescriptor('qc-flag', FETCH_STATE_DETAILS)
+    location       = LocationDescriptor('location', FETCH_STATE_DETAILS)
+    working_flag   = BooleanDescriptor('working-flag', FETCH_STATE_DETAILS)
+    samples        = EntityListDescriptor('sample', Sample, FETCH_STATE_DETAILS)
+    udf            = UdfDictionaryDescriptor(FETCH_STATE_DETAILS)
+    files          = EntityListDescriptor(nsmap('file:file'), File, FETCH_STATE_DETAILS)
+    reagent_labels = ReagentLabelList(FETCH_STATE_DETAILS)
 
     # artifact_flags XXX
     # artifact_groups XXX
@@ -836,54 +846,60 @@ class ReagentKit(Entity):
     _TAG = "reagent-kit"
     _PREFIX = 'kit'
 
-    name     = StringDescriptor('name')
-    supplier = StringDescriptor('supplier')
-    website  = StringDescriptor('website')
-    archived = BooleanDescriptor('archived')
+    # TODO: Name is in an attribute in overview but element in details
+    name             = StringDescriptor('name', FETCH_STATE_OVERVIEW_OR_DETAILS)
+    supplier         = StringDescriptor('supplier', FETCH_STATE_DETAILS)
+    website          = StringDescriptor('website', FETCH_STATE_DETAILS)
+    catalogue_number = StringDescriptor('catalogue-number', FETCH_STATE_DETAILS)  # TODO: Number rather than string, check out docs to be sure.
+    archived         = BooleanDescriptor('archived', FETCH_STATE_DETAILS)
 
 
 class ReagentLot(Entity):
-    """Reagent Lots contain information about a particualr lot of reagent used in a step"""
+    """Reagent Lots contain information about a particular lot of reagent used in a step"""
     _URI = "reagentlots"
     _TAG = "reagent-lot"
     _PREFIX = 'lot'
 
-    reagent_kit        = EntityDescriptor('reagent-kit', ReagentKit)
-    name               = StringDescriptor('name')
-    lot_number         = StringDescriptor('lot-number')
-    created_date       = StringDescriptor('created-date')
-    last_modified_date = StringDescriptor('last-modified-date')
-    expiry_date        = StringDescriptor('expiry-date')
-    created_by         = EntityDescriptor('created-by', Researcher)
-    last_modified_by   = EntityDescriptor('last-modified-by', Researcher)
-    status             = StringDescriptor('status')
-    usage_count        = IntegerDescriptor('usage-count')
+    # TODO: We don't have any on dev in SNP&SEQ, check out docs
+
+    reagent_kit        = EntityDescriptor('reagent-kit', ReagentKit, FETCH_STATE_DETAILS)
+    name               = StringDescriptor('name', FETCH_STATE_DETAILS)
+    lot_number         = StringDescriptor('lot-number', FETCH_STATE_DETAILS)
+    created_date       = StringDescriptor('created-date', FETCH_STATE_DETAILS)
+    last_modified_date = StringDescriptor('last-modified-date', FETCH_STATE_DETAILS)
+    expiry_date        = StringDescriptor('expiry-date', FETCH_STATE_DETAILS)
+    created_by         = EntityDescriptor('created-by', Researcher, FETCH_STATE_DETAILS)
+    last_modified_by   = EntityDescriptor('last-modified-by', Researcher, FETCH_STATE_DETAILS)
+    status             = StringDescriptor('status', FETCH_STATE_DETAILS)
+    usage_count        = IntegerDescriptor('usage-count', FETCH_STATE_DETAILS)
 
 
 class StepReagentLots(Entity):
-    reagent_lots = NestedEntityListDescriptor('reagent-lot', ReagentLot, 'reagent-lots')
+    reagent_lots = NestedEntityListDescriptor('reagent-lot', ReagentLot, 'reagent-lots', FETCH_STATE_DETAILS)
+
 
 class StepDetails(Entity):
     """Detail associated with a step"""
 
-    input_output_maps = InputOutputMapList('input-output-maps')
-    udf = UdfDictionaryDescriptor('fields')
-    udt = UdtDictionaryDescriptor('fields')
+    input_output_maps = InputOutputMapList(FETCH_STATE_DETAILS, 'input-output-maps')
+    udf = UdfDictionaryDescriptor(FETCH_STATE_DETAILS, 'fields')
+    udt = UdtDictionaryDescriptor(FETCH_STATE_DETAILS, 'fields')
 
 
 class Step(Entity):
-    "Step, as defined by the genologics API."
-
     _URI = 'steps'
     _PREFIX = 'stp'
 
-    current_state = StringAttributeDescriptor('current-state')
-    _reagent_lots = EntityDescriptor('reagent-lots', StepReagentLots)
-    actions       = EntityDescriptor('actions', StepActions)
-    placements    = EntityDescriptor('placements', StepPlacements)
-    details       = EntityDescriptor('details', StepDetails)
+    # TODO: Is this defined in 4.2?
+
+    current_state = StringAttributeDescriptor('current-state', FETCH_STATE_DETAILS)  # TODO: Fetch state and child objects
+    _reagent_lots = EntityDescriptor('reagent-lots', StepReagentLots, FETCH_STATE_DETAILS)
+    actions       = EntityDescriptor('actions', StepActions, FETCH_STATE_DETAILS)
+    placements    = EntityDescriptor('placements', StepPlacements, FETCH_STATE_DETAILS)
+    details       = EntityDescriptor('details', StepDetails, FETCH_STATE_DETAILS)
 
     #program_status     = EntityDescriptor('program-status',StepProgramStatus)
+    # TODO: Missing a number of elements
 
     def advance(self):
         self.root = self.lims.post(
@@ -893,6 +909,7 @@ class Step(Entity):
 
     @property
     def reagent_lots(self):
+        # TODO: Change descriptor instead?
         return self._reagent_lots.reagent_lots
 
 
@@ -901,14 +918,16 @@ class ProtocolStep(Entity):
 
     _TAG = 'step'
 
-    name                = StringAttributeDescriptor("name")
-    type                = EntityDescriptor('type', Processtype)
-    permittedcontainers = NestedStringListDescriptor('container-type', 'container-types')
-    queue_fields        = NestedAttributeListDescriptor('queue-field', 'queue-fields')
-    step_fields         = NestedAttributeListDescriptor('step-field', 'step-fields')
-    sample_fields       = NestedAttributeListDescriptor('sample-field', 'sample-fields')
-    step_properties     = NestedAttributeListDescriptor('step_property', 'step_properties')
-    epp_triggers        = NestedAttributeListDescriptor('epp_trigger', 'epp_triggers')
+    # TODO: Missing a number of fields, fix while testing
+
+    name                = StringAttributeDescriptor("name", FETCH_STATE_DETAILS)  # TODO: child objects and fetch status
+    type                = EntityDescriptor('type', Processtype, FETCH_STATE_DETAILS)
+    permittedcontainers = NestedStringListDescriptor('container-type', 'container-types', FETCH_STATE_DETAILS)
+    queue_fields        = NestedAttributeListDescriptor('queue-field', 'queue-fields', FETCH_STATE_DETAILS)
+    step_fields         = NestedAttributeListDescriptor('step-field', 'step-fields', FETCH_STATE_DETAILS)
+    sample_fields       = NestedAttributeListDescriptor('sample-field', 'sample-fields', FETCH_STATE_DETAILS)
+    step_properties     = NestedAttributeListDescriptor('step_property', 'step_properties', FETCH_STATE_DETAILS)
+    epp_triggers        = NestedAttributeListDescriptor('epp_trigger', 'epp_triggers', FETCH_STATE_DETAILS)
 
 
 class Protocol(Entity):
@@ -916,17 +935,20 @@ class Protocol(Entity):
     _URI = 'configuration/protocols'
     _TAG = 'protocol'
 
-    steps      = NestedEntityListDescriptor('step', ProtocolStep, 'steps')
-    properties = NestedAttributeListDescriptor('protocol-property', 'protocol-properties')
-    name       = StringAttributeDescriptor('name')
+    steps      = NestedEntityListDescriptor('step', ProtocolStep, 'steps', FETCH_STATE_DETAILS)
+    properties = NestedAttributeListDescriptor('protocol-property', 'protocol-properties', FETCH_STATE_DETAILS)
+    name       = StringAttributeDescriptor('name', FETCH_STATE_OVERVIEW_OR_DETAILS)
 
 
 class Stage(Entity):
     """Holds Protocol/Workflow"""
-    name     = StringAttributeDescriptor('name')
-    index    = IntegerAttributeDescriptor('index')
-    protocol = EntityDescriptor('protocol', Protocol)
-    step     = EntityDescriptor('step', ProtocolStep)
+
+    # Overview: configuration/workflows/<id>/
+    # Details: configuration/workflows/<id>/stages/<id>
+    name     = StringAttributeDescriptor('name', FETCH_STATE_OVERVIEW_OR_DETAILS)
+    index    = IntegerAttributeDescriptor('index', FETCH_STATE_DETAILS)
+    protocol = EntityDescriptor('protocol', Protocol, FETCH_STATE_DETAILS)
+    step     = EntityDescriptor('step', ProtocolStep, FETCH_STATE_DETAILS)
 
 
 class Workflow(Entity):
@@ -934,10 +956,10 @@ class Workflow(Entity):
     _URI = "configuration/workflows"
     _TAG = "workflow"
 
-    name      = StringAttributeDescriptor("name", required_fetch_state=FETCH_STATE_OVERVIEW_OR_DETAILS)
-    status    = StringAttributeDescriptor("status", required_fetch_state=FETCH_STATE_OVERVIEW_OR_DETAILS)
-    protocols = NestedEntityListDescriptor('protocol', Protocol, 'protocols')
-    stages    = NestedEntityListDescriptor('stage', Stage, 'stages')
+    name      = StringAttributeDescriptor("name", FETCH_STATE_OVERVIEW_OR_DETAILS)
+    status    = StringAttributeDescriptor("status", FETCH_STATE_OVERVIEW_OR_DETAILS)
+    protocols = NestedEntityListDescriptor('protocol', Protocol, 'protocols', FETCH_STATE_DETAILS)
+    stages    = NestedEntityListDescriptor('stage', Stage, 'stages', FETCH_STATE_DETAILS)
 
 
 class ReagentType(Entity):
@@ -946,9 +968,10 @@ class ReagentType(Entity):
     _TAG = "reagent-type"
     _PREFIX = 'rtp'
 
-    category = StringDescriptor('reagent-category')
+    category = StringDescriptor('reagent-category', FETCH_STATE_DETAILS)
 
     def __init__(self, lims, uri=None, id=None):
+        raise NotImplementedError("Look into this!")
         super(ReagentType, self).__init__(lims, uri, id)
         assert self.uri is not None
         self.root = lims.get(self.uri)
@@ -965,18 +988,20 @@ class Queue(Entity):
     _TAG= "queue"
     _PREFIX = "que"
 
-    artifacts=NestedEntityListDescriptor("artifact", Artifact, "artifacts")
+    # TODO: Not in 4.2, look into docs
+    artifacts = NestedEntityListDescriptor("artifact", Artifact, "artifacts", FETCH_STATE_DETAILS)
 
 
 class Version(Entity):
-    minor = StringDescriptor('minor')
-    major = StringDescriptor('major')
-    uri = StringDescriptor('uri')  # TODO: Builtin?
+    _URI = "api"  # TODO, does not work, as the v2 is always appended. Special handling when api perhaps
+    minor = StringDescriptor('minor', FETCH_STATE_OVERVIEW)
+    major = StringDescriptor('major', FETCH_STATE_OVERVIEW)
 
 
-Sample.artifact          = EntityDescriptor('artifact', Artifact)
-StepActions.step         = EntityDescriptor('step', Step)
-Stage.workflow           = EntityDescriptor('workflow', Workflow)
-Artifact.workflow_stages = NestedEntityListDescriptor('workflow-stage', Stage, 'workflow-stages')
-Step.configuration       = EntityDescriptor('configuration', ProtocolStep)
+# TODO: What is this?
+Sample.artifact          = EntityDescriptor('artifact', Artifact, FETCH_STATE_DETAILS)
+StepActions.step         = EntityDescriptor('step', Step, FETCH_STATE_DETAILS)
+Stage.workflow           = EntityDescriptor('workflow', Workflow, FETCH_STATE_DETAILS)
+Artifact.workflow_stages = NestedEntityListDescriptor('workflow-stage', Stage, 'workflow-stages', FETCH_STATE_DETAILS)
+Step.configuration       = EntityDescriptor('configuration', ProtocolStep, FETCH_STATE_DETAILS)
 

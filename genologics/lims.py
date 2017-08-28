@@ -63,6 +63,8 @@ class Lims(object):
         self.VERSION = version
         if use_cache:
             self.cache = dict()
+        else:
+            self.cache = None
         # For optimization purposes, enables requests to persist connections
         self.request_session = requests.Session()
         # The connection pool has a default size of 10
@@ -492,7 +494,7 @@ class Lims(object):
                 break
             root = self.get(node.attrib['uri'], params=params)
 
-    def _get_instances(self, klass, add_info=None, params=dict(), fetch_state=FETCH_STATE_MINIMAL):
+    def _get_instances(self, klass, add_info=None, params=dict(), fetch_state=FETCH_STATE_OVERVIEW):
         results = []
         additionnal_info_dicts = []
         tag = klass._TAG
