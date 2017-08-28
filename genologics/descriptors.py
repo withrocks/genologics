@@ -70,8 +70,8 @@ class StringDescriptor(TagDescriptor):
     represented by an XML element.
     """
     def __get__(self, instance, cls):
-        assert self.required_fetch_state == FETCH_STATE_DETAILS  # TESTING!
         instance.get(required_fetch_state=self.required_fetch_state)
+        assert instance.root is not None
         node = self.get_node(instance)
         if node is None:
             return None
@@ -440,7 +440,7 @@ class EntityDescriptor(TagDescriptor):
         elif len(nodes) == 0:
             return None
         else:
-            return self.klass(instance.lims, uri=nodes[0].attrib['uri'])
+            return self.klass(instance.lims, uri=nodes[0].attrib['uri'], fetch_state=FETCH_STATE_OVERVIEW)
 
     def __set__(self, instance, value):
         instance.get()
@@ -454,6 +454,7 @@ class EntityDescriptor(TagDescriptor):
 class TooManyNodesException(Exception):
     pass
 
+
 class EntityListDescriptor(EntityDescriptor):
     """An instance attribute yielding a list of entity instances
     represented by multiple XML elements.
@@ -463,7 +464,8 @@ class EntityListDescriptor(EntityDescriptor):
         instance.get(required_fetch_state=self.required_fetch_state)
         result = []
         for node in instance.root.findall(self.tag):
-            result.append(self.klass(instance.lims, uri=node.attrib['uri']))
+            print self.klass
+            result.append(self.klass(instance.lims, uri=node.attrib['uri'], fetch_state=FETCH_STATE_OVERVIEW))
 
         return result
 
@@ -571,7 +573,7 @@ class LocationDescriptor(TagDescriptor):
         instance.get(required_fetch_state=self.required_fetch_state)
         node = instance.root.find(self.tag)
         uri = node.find('container').attrib['uri']
-        return Container(instance.lims, uri=uri), node.find('value').text
+        return Container(instance.lims, uri=uri, fetch_state=FETCH_STATE_OVERVIEW), node.find('value').text
 
 
 class ReagentLabelList(BaseDescriptor):

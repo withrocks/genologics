@@ -268,6 +268,7 @@ class Entity(object):
         self._uri = uri
         self.root = None
         self.fetch_state = fetch_state
+        assert self.fetch_state != 0  # TODO
         logging.debug("Initializing {} from {}, fetch_state={}".format(self.__class__, uri, fetch_state))
 
     def __str__(self):
@@ -396,10 +397,6 @@ class Note(Entity):
 
 class File(Entity):
     "File attached to a project or a sample."
-    def __init__(self):
-        # NOMERGE
-        raise NotImplementedError("Using note, look into the use of fetch state")
-
     attached_to       = StringDescriptor('attached-to', FETCH_STATE_OVERVIEW)
     content_location  = StringDescriptor('content-location', FETCH_STATE_OVERVIEW)
     original_location = StringDescriptor('original-location', FETCH_STATE_OVERVIEW)
@@ -664,6 +661,7 @@ class Artifact(Entity):
     files          = EntityListDescriptor(nsmap('file:file'), File, FETCH_STATE_DETAILS)
     reagent_labels = ReagentLabelList(FETCH_STATE_DETAILS)
 
+
     # artifact_flags XXX
     # artifact_groups XXX
 
@@ -708,6 +706,7 @@ class Artifact(Entity):
     state = property(get_state)
     stateless = property(stateless)
 
+    """
     def _get_workflow_stages_and_statuses(self):
         self.get()
         result = []
@@ -715,8 +714,16 @@ class Artifact(Entity):
         for node in rootnode.findall('workflow-stage'):
             result.append((Stage(self.lims, uri=node.attrib['uri']), node.attrib['status'], node.attrib['name']))
         return result
-
     workflow_stages_and_statuses = property(_get_workflow_stages_and_statuses)
+    """
+
+    @property
+    def workflow_stages_and_statuses(self):
+        """
+        NOTE: You can now iterate through statuses directly via `artifact.workflow_stages` without the stages being
+        automatically loaded.
+        """
+        pass
 
 
 class StepPlacements(Entity):
@@ -945,6 +952,7 @@ class Stage(Entity):
     # Overview: configuration/workflows/<id>/
     # Details: configuration/workflows/<id>/stages/<id>
     name     = StringAttributeDescriptor('name', FETCH_STATE_OVERVIEW_OR_DETAILS)
+    status   = StringAttributeDescriptor('status', FETCH_STATE_OVERVIEW_OR_DETAILS)
     index    = IntegerAttributeDescriptor('index', FETCH_STATE_DETAILS)
     protocol = EntityDescriptor('protocol', Protocol, FETCH_STATE_DETAILS)
     step     = EntityDescriptor('step', ProtocolStep, FETCH_STATE_DETAILS)

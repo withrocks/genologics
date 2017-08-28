@@ -52,7 +52,7 @@ class TestArtifactsMajor2Minor24(ClarityApiIntegrationTestCase):
 
         # We allow one call per page, but not more
         artifacts = self.lims.get_artifacts()
-        assert len(artifacts) > 2000,\
+        assert len(artifacts) > 2000, \
             "Artifact count less than expected. If there are more artifacts in the system, the test has failed."
 
     def test_expand_analyte(self):
@@ -66,9 +66,12 @@ class TestArtifactsMajor2Minor24(ClarityApiIntegrationTestCase):
         analyte = random.choice(analytes)
         assert len(analyte.name) > 0
 
-    # NO_UPSTREAM: The following tests are using specific names for completeness. Don't merge into upstream
+    # NO_MERGE: The following tests are using specific names for completeness. Don't merge into upstream
     # before it has at least been made more generic (e.g. configuration file)
+    # TODO: Move this to clarity-ext or clarity-snpseq
+    # TODO: This huge test should be broken down and made more generic
     def test_expand_specific_analyte(self):
+        request_watcher.allow(2)  # One for the search, one for the details
         analyte_name = "Test-0002-Jojo21"
         analyte = self.lims.get_artifacts(name=analyte_name)[0]
         assert analyte.name == analyte_name
@@ -84,12 +87,46 @@ class TestArtifactsMajor2Minor24(ClarityApiIntegrationTestCase):
         assert analyte.samples[0].id == "LAG101A21"
         assert len(analyte.reagent_labels) == 1
         assert analyte.reagent_labels[0] == "D701-D506"
-        print analyte.udf
-        assert len(analyte.udf) > 0
+        assert len(analyte.udf) == 23
+        assert set([(key, value) for key, value in analyte.udf.items()]) == \
+               {('TS Length (bp)', 287), ('Dil. calc. source vol', 0), ('Conc. Current (ng/ul)', 50),
+                ('qPCR conc. (nM)', 111.85138390028155), ('Dil. calc. target vol', 10), ('Fragment Upper (bp)', 389),
+                ('Pooling', '4 libraries/pool'), ('PhiX %', '1'), ('conc FC', '14 pM'), ('TS Fragment Lower (bp)', 206),
+                ('Fragment Lower (bp)', 206), ('ng input', 500), ('Special info seq', 'No'),
+                ('TS Fragment Upper (bp)', 389), ('Current sample volume (ul)', 20),
+                ('Sequencing instrument', 'HiSeq2500 High Output'), ('Initial qPCR conc. (pM)', 1.77551699001),
+                ('Number of lanes', '1 lane/pool'), ('Target conc. (ng/ul)', 50), ('Target vol. (ul)', 10),
+                ('Dil. calc. target conc.', 50), ('Conc. Current (nM)', 111.85138390028155),
+                ('Length Current (bp)', 287)}
+        assert len(analyte.workflow_stages) == 8
+        # Status and name can now be fetched without loading the entire stage object:
+        assert {(stage.status, len(stage.name) > 0) for stage in analyte.workflow_stages} == {('COMPLETE', True)}
 
-    def test_expand_specific_sample_from_analyte(self):
-        # TODO:
-        pass
+        # Check if we can expand the sample:
+        sample = analyte.samples[0]
+        self.check_sample_details(sample)
+
+    def check_sample_details(self, sample):
+        request_watcher.allow(1)
+        assert len(sample.name) > 0
+        assert sample.date_received == "2017-06-22"  # TODO: check if parsable to date
+        assert len(sample.project.id) > 0  # TODO: Expand!
+        self.check_project_details(sample.project)
+        self.check_researcher_details(sample.submitter)
+
+    def check_project_details(self, project):
+        request_watcher.allow(1)
+        assert len(project.name) > 0
+        assert len(project.open_date) > 0  #TODO: parse
+        assert len(project.researcher.id) > 0
+
+        # TODO: files are currently required
+        assert len(project.files) > 0
+
+    def check_researcher_details(self, researcher):
+        request_watcher.allow(1)
+        assert len(researcher.first_name) > 0
+        assert len(researcher.last_name) > 0
 
     def test_get_workflows(self):
         """Fetches the workflow via /configuration/workflows via one HTTP call.
@@ -123,7 +160,8 @@ class TestArtifactsMajor2Minor24(ClarityApiIntegrationTestCase):
         """Fetch a workflow from the list entry point, then expand it and ensure that we can
         access information on it with expansion only when necessary"""
 
-        request_watcher.allow(1)  # Allows exactly one call through, more calls will fail. request_watcher is global but will use the stack trace to identify this
+        request_watcher.allow(
+            1)  # Allows exactly one call through, more calls will fail. request_watcher is global but will use the stack trace to identify this
         workflow = self.lims.get_workflows()[0]
 
         # These attribute don't require another call to the server:
