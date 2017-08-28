@@ -70,7 +70,8 @@ class StringDescriptor(TagDescriptor):
     represented by an XML element.
     """
     def __get__(self, instance, cls):
-        instance.get()
+        assert self.required_fetch_state == FETCH_STATE_DETAILS  # TESTING!
+        instance.get(required_fetch_state=self.required_fetch_state)
         node = self.get_node(instance)
         if node is None:
             return None
@@ -335,6 +336,9 @@ class UdfDictionary(object):
                 self.rootnode.remove(node)
                 break
 
+    def __len__(self):
+        return len(self._lookup)
+
     def items(self):
         return list(self._lookup.items())
 
@@ -367,13 +371,12 @@ class UdfDictionaryDescriptor(BaseDescriptor):
     """
     _UDT = False
 
-    def __init__(self, required_fetch_status, *args):
-        super(BaseDescriptor, self).__init__()
+    def __init__(self, required_fetch_state, *args):
+        super(UdfDictionaryDescriptor, self).__init__(required_fetch_state)
         self.rootkeys = args
-        self.required_fetch_status = required_fetch_status
 
     def __get__(self, instance, cls):
-        instance.get()
+        instance.get(required_fetch_state=self.required_fetch_state)
         self.value = UdfDictionary(instance, *self.rootkeys, udt=self._UDT)
         return self.value
 
@@ -428,12 +431,16 @@ class EntityDescriptor(TagDescriptor):
         self.klass = klass
 
     def __get__(self, instance, cls):
-        instance.get()
-        node = instance.root.find(self.tag)
-        if node is None:
+        instance.get(required_fetch_state=self.required_fetch_state)
+        # Ensure that we only find one node:
+        nodes = instance.root.findall(self.tag)
+        if len(nodes) > 1:
+            raise TooManyNodesException("Using {} claims that there is only one node but there were {}. Use {} instead"
+                                        .format(self.__class__, len(nodes), EntityListDescriptor))
+        elif len(nodes) == 0:
             return None
         else:
-            return self.klass(instance.lims, uri=node.attrib['uri'])
+            return self.klass(instance.lims, uri=nodes[0].attrib['uri'])
 
     def __set__(self, instance, value):
         instance.get()
@@ -444,6 +451,8 @@ class EntityDescriptor(TagDescriptor):
             instance.root.append(node)
         node.attrib['uri'] = value.uri
 
+class TooManyNodesException(Exception):
+    pass
 
 class EntityListDescriptor(EntityDescriptor):
     """An instance attribute yielding a list of entity instances
@@ -451,7 +460,7 @@ class EntityListDescriptor(EntityDescriptor):
     """
 
     def __get__(self, instance, cls):
-        instance.get()
+        instance.get(required_fetch_state=self.required_fetch_state)
         result = []
         for node in instance.root.findall(self.tag):
             result.append(self.klass(instance.lims, uri=node.attrib['uri']))
@@ -559,7 +568,7 @@ class LocationDescriptor(TagDescriptor):
     """
     def __get__(self, instance, cls):
         from genologics.entities import Container
-        instance.get()
+        instance.get(required_fetch_state=self.required_fetch_state)
         node = instance.root.find(self.tag)
         uri = node.find('container').attrib['uri']
         return Container(instance.lims, uri=uri), node.find('value').text
@@ -568,7 +577,7 @@ class LocationDescriptor(TagDescriptor):
 class ReagentLabelList(BaseDescriptor):
     """An instance attribute yielding a list of reagent labels"""
     def __get__(self, instance, cls):
-        instance.get()
+        instance.get(required_fetch_state=self.required_fetch_state)
         self.value = []
         for node in instance.root.findall('reagent-label'):
             try:

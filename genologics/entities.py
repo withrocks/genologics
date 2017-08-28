@@ -254,7 +254,6 @@ class Entity(object):
         else:
             return object.__new__(cls)
 
-
     def __init__(self, lims, uri=None, id=None, _create_new=False, fetch_state=FETCH_STATE_NONE):
         assert uri or id or _create_new
         if not _create_new:

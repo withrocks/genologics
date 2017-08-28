@@ -1,5 +1,4 @@
 from urllib3.connectionpool import HTTPConnectionPool
-import sys
 
 
 # Patch urlopen so we have a pre callback:
@@ -15,13 +14,12 @@ def wrap(func, pre):
 class RequestWatcher(object):
     """Watches requests to urlopen. Used for reporting on diffs."""
 
-    def __init__(self):
-        self.requests = list()
+    def __init__(self, context):
+        self.requests = dict()
+        self._calls = dict()  # Allowed calls per test case
+        self._allowed = dict()  # Allowed calls per test case
         self._last_request_pointer = 0
-        self.allowed = sys.maxint
-        self.calls = 0
-        print "HERE, I am, about to patch the stuff, guessing it always points to the same?"
-        raise
+        self.context = context
         HTTPConnectionPool.urlopen = wrap(HTTPConnectionPool.urlopen, self.callback)
 
     def append(self, url):
@@ -38,96 +36,60 @@ class RequestWatcher(object):
     def expect(self, calls):
         delta = self.delta()
         assert delta == calls, "Expecting {} call(s), got {}".format(calls, delta)
+
+    def identify_test_case(self):
+        # This is ugly but effective, monkey patching urlopen in a with could be better...
+        # ... not really designed for reuse (yet)
+        def iterate_ids():
+            import traceback
+            stack = traceback.extract_stack()
+            for fname, lineno, fn, line in stack:
+                if self.context in fname:
+                    yield fn
+        return "/".join(iterate_ids())
+
+    def register_url(self, url):
+        test_case = self.identify_test_case()
+        self.requests.setdefault(test_case, dict())
+        self.requests[test_case].setdefault(url, 0)
+        self.requests[test_case][url] += 1
+        self.increment_calls()
+
+    @property
+    def calls(self):
+        test_case = self.identify_test_case()
+        self._calls.setdefault(test_case, 0)
+        return self._calls[test_case]
+
+    def increment_calls(self):
+        test_case = self.identify_test_case()
+        self._calls.setdefault(test_case, 0)
+        self._calls[test_case] += 1
+
+    @property
+    def allowed(self):
+        test_case = self.identify_test_case()
+        try:
+            return self._allowed[test_case]
+        except:
+            import sys
+            return sys.maxint
 
     def callback(self, *_, **kwargs):
-        self.requests.append(kwargs["url"] + "HERE")
-        if self.calls >= self.allowed:
+        test_case = self.identify_test_case()
+        self.register_url(kwargs["url"])
+        if self.calls > self.allowed:
             raise ValueError(
                 "Allowed calls ({}) reached. Call `allow()` to increase the count again. Call history: \n\t{}"
-                    .format(self.allowed, "\n\t".join(self.requests)))
-        self.calls += 1
+                    .format(self.allowed, "\n\t".join(self.requests[test_case])))
 
     def allow(self, count):
-        self.allowed = count
-        self.calls = 0
+        test_case = self.identify_test_case()
+        self._allowed[test_case] = count
+        self._calls[test_case] = 0
 
     def __repr__(self):
-        return repr(self.requests)
+        import pprint
+        return pprint.pformat(self.requests)
 
 
-# Patch urlopen so we have a pre callback:
-def wrap(func, pre):
-    def call(*args, **kwargs):
-        pre(func, *args, **kwargs)
-        result = func(*args, **kwargs)
-        return result
-
-    return call
-
-
-class RequestWatcher(object):
-    """Watches requests to urlopen. Used for reporting on diffs."""
-
-    def __init__(self):
-        self.requests = list()
-        self._last_request_pointer = 0
-        self.allowed = sys.maxint
-        self.calls = 0
-        HTTPConnectionPool.urlopen = wrap(HTTPConnectionPool.urlopen, self.callback)
-
-    def append(self, url):
-        self.requests.append(url)
-
-    def delta_requests(self):
-        ret = self.requests[self._last_request_pointer:]
-        self._last_request_pointer = len(self.requests)
-        return ret
-
-    def delta(self):
-        return len(self.delta_requests())
-
-    def expect(self, calls):
-        delta = self.delta()
-        assert delta == calls, "Expecting {} call(s), got {}".format(calls, delta)
-
-    def callback(self, *args, **kwargs):
-        import traceback
-        print args, kwargs
-
-        def running_test():
-            # Rather ugly, fetch which test is running from the stack trace, as the monkey patched 
-
-        def format_stack():
-            # Limit the stack to this module, TODO very hacky for now
-            def filter_stack():
-                stack = traceback.extract_stack()
-                filtered = False
-                for stack_entry in stack:
-                    filename, lineno, name, line = stack_entry
-                    if "python2.7" in filename or "pycharm" in filename or "test_helper" in filename:
-                        filtered = True
-                        continue
-                    if filtered:
-                        yield "  ..."
-                        filtered = False
-                    yield "  File \"{}\", line {}".format(filename, lineno)
-                    yield "    {}".format(line)
-                if filtered:
-                    yield "  ..."
-
-            return "\n".join(filter_stack())
-
-        msg = "{}\nObject ID: {}, Stack: \n{}".format(kwargs["url"], id(self), format_stack())
-
-        self.requests.append(msg)
-        if self.calls >= self.allowed:
-            raise ValueError(
-                "Allowed calls ({}) reached. Call `allow()` to increase the count again. Call history: \n{}".format(self.allowed, "\n".join(self.requests)))
-        self.calls += 1
-
-    def allow(self, count):
-        self.allowed = count
-        self.calls = 0
-
-    def __repr__(self):
-        return repr(self.requests)
