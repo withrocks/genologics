@@ -178,3 +178,6 @@ class TestArtifactsMajor2Minor24(ClarityApiIntegrationTestCase):
         # Accessing the following attributes of the Protocol should also be free:
         protocol = workflow.protocols[0]
         assert len(protocol.name) > 0
+
+    def test_get_project(self):
+        pass

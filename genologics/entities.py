@@ -409,7 +409,7 @@ class Project(Entity):
     _URI = 'projects'
     _PREFIX = 'prj'
 
-    name         = StringDescriptor('name', FETCH_STATE_OVERVIEW_OR_DETAILS)
+    name         = ElementDescriptor('./name')  # StringDescriptor('name', )
     open_date    = StringDescriptor('open-date', FETCH_STATE_DETAILS)
     close_date   = StringDescriptor('close-date', FETCH_STATE_DETAILS)
     invoice_date = StringDescriptor('invoice-date', FETCH_STATE_DETAILS)
