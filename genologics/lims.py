@@ -49,7 +49,7 @@ class Lims(object):
 
     VERSION = 'v2'
 
-    def __init__(self, baseuri, username, password, version=VERSION):
+    def __init__(self, baseuri, username, password, version=VERSION, use_cache=True):
         """baseuri: Base URI for the GenoLogics server, excluding
                     the 'api' or version parts!
                     For example: https://genologics.scilifelab.se:8443/
@@ -61,17 +61,23 @@ class Lims(object):
         self.username = username
         self.password = password
         self.VERSION = version
-        self.cache = dict()
+        if use_cache:
+            self.cache = dict()
+        else:
+            self.cache = None
         # For optimization purposes, enables requests to persist connections
         self.request_session = requests.Session()
         # The connection pool has a default size of 10
         self.adapter = requests.adapters.HTTPAdapter(pool_connections=100, pool_maxsize=100)
         self.request_session.mount('http://', self.adapter)
 
+    def clear_cache(self):
+        self.cache = dict()
+
     def get_uri(self, *segments, **query):
         "Return the full URI given the path segments and optional query."
         segments = ['api', self.VERSION] + list(segments)
-        url = urljoin(self.baseuri, '/'.join(segments))
+        url = urljoin(self.baseuri, '/'.join(map(str, segments)))
         if query:
             url += '?' + urlencode(query)
         return url
@@ -154,15 +160,22 @@ class Lims(object):
                                    'accept': 'application/xml'})
         return self.parse_response(r, accept_status_codes=[200, 201, 202])
 
-    def check_version(self):
-        """Raise ValueError if the version for this interface
-        does not match any of the versions given for the API.
-        """
+    def get_versions(self):
         uri = urljoin(self.baseuri, 'api')
         r = requests.get(uri, auth=(self.username, self.password))
         root = self.parse_response(r)
         tag = nsmap('ver:versions')
         assert tag == root.tag
+        for node in root.findall('version'):
+            version = Version(self, uri=node.attrib['uri'])
+            version.minor = node.attrib['minor']
+            version.major = node.attrib['major']
+            yield version
+
+    def check_version(self):
+        """Raise ValueError if the version for this interface
+        does not match any of the versions given for the API.
+        """
         for node in root.findall('version'):
             if node.attrib['major'] == self.VERSION: return
         raise ValueError('version mismatch')
@@ -415,7 +428,7 @@ class Lims(object):
     def get_workflows(self, name=None, add_info=False):
         """Get the list of existing workflows on the system """
         params = self._get_params(name=name)
-        return self._get_instances(Workflow, add_info=add_info, params=params)
+        return self._get_instances(Workflow, add_info=add_info, params=params, bag=["status", "name"])
 
     def get_process_types(self, displayname=None, add_info=False):
         """Get a list of process types with the specified name."""
@@ -471,25 +484,34 @@ class Lims(object):
             result["udt.%s" % key] = value
         return result
 
-    def _get_instances(self, klass, add_info=None, params=dict()):
+    def _enumerate_pages(self, uri, params):
+        """Yields all root elements """
+        root = self.get(uri, params=params)
+        while params.get('start-index') is None:  # Loop over all pages.
+            yield root
+            node = root.find('next-page')
+            if node is None:
+                break
+            root = self.get(node.attrib['uri'], params=params)
+
+    def _get_instances(self, klass, add_info=None, params=dict(), bag=None):
         results = []
         additionnal_info_dicts = []
         tag = klass._TAG
         if tag is None:
             tag = klass.__name__.lower()
-        root = self.get(self.get_uri(klass._URI), params=params)
-        while params.get('start-index') is None:  # Loop over all pages.
+        uri = self.get_uri(klass._URI)
+        for root in self._enumerate_pages(uri, params):
             for node in root.findall(tag):
-                results.append(klass(self, uri=node.attrib['uri']))
+                instance = klass.create_from_overview_node(self, node, bag)
+                results.append(instance)
                 info_dict = {}
                 for attrib_key in node.attrib:
                     info_dict[attrib_key] = node.attrib['uri']
                 for subnode in node:
                     info_dict[subnode.tag] = subnode.text
                 additionnal_info_dicts.append(info_dict)
-            node = root.find('next-page')
-            if node is None: break
-            root = self.get(node.attrib['uri'], params=params)
+
         if add_info:
             return results, additionnal_info_dicts
         else:

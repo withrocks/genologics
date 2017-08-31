@@ -47,16 +47,22 @@ class TagDescriptor(BaseDescriptor):
         # If we have loaded the details for this entity (instance.root is not None), we always use that.
         # TODO: This will fail if the attribute is in extra but not in root, like is the case in WorkflowStage,
         # so that requires a special descriptor
-        if instance.bag is not None and instance.root is None and self.tag in instance.bag:
-            return instance.bag[self.tag]
+        if self.available_in_bag(instance):
+            return self.get_from_bag(instance)
 
-        # If not available, lazy load
+        # If not available, lazy load the entire object and try to get it from there
         instance.get()
         return self.parse_from_xml(instance.root)
 
     @abc.abstractmethod
     def parse_from_xml(self, root):
         pass
+
+    def available_in_bag(self, instance):
+        """Returns True if the value can be fetched from the bag. If we have loaded the root, it should
+        generally not be fetched from the bag, as we should then have all the details (an exception is the
+        rare case where the root doesn't also have the bag value."""
+        return instance.bag is not None and instance.root is None and self.tag in instance.bag
 
     def get_from_bag(self, instance):
         return instance.bag[self.tag]
@@ -546,7 +552,6 @@ class NestedEntityListDescriptor(EntityListDescriptor):
         self.bag_keys = bag
 
     def __get__(self, instance, cls):
-        print repr(self)
         instance.get()
         result = []
         rootnode = instance.root
@@ -555,8 +560,8 @@ class NestedEntityListDescriptor(EntityListDescriptor):
         for node in rootnode.findall(self.tag):
             # NOTE: The name should correspond to the name on the object, not necessarily the same
             # as the name of the attribute.
-            bag_key_values = {key: node.attrib[key] for key in self.bag_keys}
-            result.append(self.klass(instance.lims, uri=node.attrib['uri'], bag=bag_key_values))
+            bag = FetchFromAttributesBag(node, self.bag_keys)
+            result.append(self.klass(instance.lims, uri=node.attrib['uri'], bag=bag))
         return result
 
 
@@ -643,3 +648,10 @@ class InputOutputMapList(BaseDescriptor):
         if node is not None:
             result['parent-process'] = Process(lims, node.attrib['uri'])
         return result
+
+
+class FetchFromAttributesBag(dict):
+    """A 'bag' of properties from which an entity can fetch data without loading the entire object"""
+    def __init__(self, node, bag_keys):
+        if bag_keys is not None:
+            self.update({key: node.attrib[key] for key in bag_keys})

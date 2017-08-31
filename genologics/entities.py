@@ -11,7 +11,8 @@ from genologics.descriptors import StringDescriptor, StringDictionaryDescriptor,
     UdtDictionaryDescriptor, ExternalidListDescriptor, EntityDescriptor, BooleanDescriptor, EntityListDescriptor, \
     StringAttributeDescriptor, StringListDescriptor, DimensionDescriptor, IntegerDescriptor, \
     PlacementDictionaryDescriptor, InputOutputMapList, LocationDescriptor, ReagentLabelList, NestedEntityListDescriptor, \
-    NestedStringListDescriptor, NestedAttributeListDescriptor, IntegerAttributeDescriptor, OnlyInOverviewDescriptor
+    NestedStringListDescriptor, NestedAttributeListDescriptor, IntegerAttributeDescriptor, OnlyInOverviewDescriptor, \
+    TagDescriptor, FetchFromAttributesBag
 
 try:
     from urllib.parse import urlsplit, urlparse, parse_qs, urlunparse
@@ -236,6 +237,7 @@ class Entity(object):
     _URI = None
     _PREFIX = None
 
+    # TODO: Get rid of __new__ so this can be more easily reused, e.g. as a mixin
     def __new__(cls, lims, uri=None, id=None, _create_new=False, bag=None):
         if not uri:
             if id:
@@ -322,6 +324,19 @@ class Entity(object):
         data = lims.tostring(ElementTree.ElementTree(instance.root))
         instance.root = lims.post(uri=lims.get_uri(cls._URI), data=data)
         instance._uri = instance.root.attrib['uri']
+        return instance
+
+    @classmethod
+    def _get_descriptors(cls):
+        """Iterates over all descriptors on the entity. Used for when you need the metadata the descriptors provide"""
+        for key, value in cls.__dict__.items():
+            if isinstance(value, TagDescriptor):
+                yield value
+
+    @classmethod
+    def create_from_overview_node(cls, lims, node, bag_keys):
+        bag = FetchFromAttributesBag(node, bag_keys)
+        instance = cls(lims, uri=node.attrib['uri'], bag=bag)
         return instance
 
 
