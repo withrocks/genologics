@@ -11,7 +11,7 @@ from genologics.descriptors import StringDescriptor, StringDictionaryDescriptor,
     UdtDictionaryDescriptor, ExternalidListDescriptor, EntityDescriptor, BooleanDescriptor, EntityListDescriptor, \
     StringAttributeDescriptor, StringListDescriptor, DimensionDescriptor, IntegerDescriptor, \
     PlacementDictionaryDescriptor, InputOutputMapList, LocationDescriptor, ReagentLabelList, NestedEntityListDescriptor, \
-    NestedStringListDescriptor, NestedAttributeListDescriptor, IntegerAttributeDescriptor
+    NestedStringListDescriptor, NestedAttributeListDescriptor, IntegerAttributeDescriptor, OnlyInOverviewDescriptor
 
 try:
     from urllib.parse import urlsplit, urlparse, parse_qs, urlunparse
@@ -236,7 +236,7 @@ class Entity(object):
     _URI = None
     _PREFIX = None
 
-    def __new__(cls, lims, uri=None, id=None, _create_new=False, extra=None):
+    def __new__(cls, lims, uri=None, id=None, _create_new=False, bag=None):
         if not uri:
             if id:
                 uri = lims.get_uri(cls._URI, id)
@@ -250,7 +250,7 @@ class Entity(object):
         except KeyError:
             return object.__new__(cls)
 
-    def __init__(self, lims, uri=None, id=None, _create_new=False, extra=None):
+    def __init__(self, lims, uri=None, id=None, _create_new=False, bag=None):
         assert uri or id or _create_new
         if not _create_new:
             if hasattr(self, 'lims'): return
@@ -261,7 +261,7 @@ class Entity(object):
         self.lims = lims
         self._uri = uri
         self.root = None
-        self.extra = extra
+        self.bag = bag
 
     def __str__(self):
         return "%s(%s)" % (self.__class__.__name__, self.id)
@@ -622,19 +622,19 @@ class Artifact(Entity):
     _URI = 'artifacts'
     _PREFIX = 'art'
 
-    name           = StringDescriptor('name')
-    type           = StringDescriptor('type')
-    output_type    = StringDescriptor('output-type')
-    parent_process = EntityDescriptor('parent-process', Process)
-    volume         = StringDescriptor('volume')
-    concentration  = StringDescriptor('concentration')
-    qc_flag        = StringDescriptor('qc-flag')
-    location       = LocationDescriptor('location')
-    working_flag   = BooleanDescriptor('working-flag')
-    samples        = EntityListDescriptor('sample', Sample)
-    udf            = UdfDictionaryDescriptor()
-    files          = EntityListDescriptor(nsmap('file:file'), File)
-    reagent_labels = ReagentLabelList()
+    name            = StringDescriptor('name')
+    type            = StringDescriptor('type')
+    output_type     = StringDescriptor('output-type')
+    parent_process  = EntityDescriptor('parent-process', Process)
+    volume          = StringDescriptor('volume')
+    concentration   = StringDescriptor('concentration')
+    qc_flag         = StringDescriptor('qc-flag')
+    location        = LocationDescriptor('location')
+    working_flag    = BooleanDescriptor('working-flag')
+    samples         = EntityListDescriptor('sample', Sample)
+    udf             = UdfDictionaryDescriptor()
+    files           = EntityListDescriptor(nsmap('file:file'), File)
+    reagent_labels  = ReagentLabelList()
 
     # artifact_flags XXX
     # artifact_groups XXX
@@ -680,15 +680,17 @@ class Artifact(Entity):
     state = property(get_state)
     stateless = property(stateless)
 
-    def _get_workflow_stages_and_statuses(self):
-        self.get()
-        result = []
-        rootnode = self.root.find('workflow-stages')
-        for node in rootnode.findall('workflow-stage'):
-            result.append((Stage(self.lims, uri=node.attrib['uri']), node.attrib['status'], node.attrib['name']))
-        return result
+    @property
+    def workflow_stages_and_statuses(self):
+        """Fetches workflow stages
 
-    workflow_stages_and_statuses = property(_get_workflow_stages_and_statuses)
+        Provided for backwards compatibility: You can now fetch access workflow stages directly via the workflow_stages property
+        without extra cost.
+        """
+        result = list()
+        for stage in self.workflow_stages:
+            result.append((stage, stage.status, stage.name))
+        return result
 
 
 class StepPlacements(Entity):
@@ -910,6 +912,12 @@ class Stage(Entity):
     step     = EntityDescriptor('step', ProtocolStep)
 
 
+class WorkflowStage(Stage):
+    """Represents a stage as it appears in the details view of an artifact, where it also has a status"""
+
+    status = OnlyInOverviewDescriptor('status')
+
+
 class Workflow(Entity):
     """ Workflow, introduced in 3.5"""
     _URI = "configuration/workflows"
@@ -917,8 +925,8 @@ class Workflow(Entity):
 
     name      = StringAttributeDescriptor("name")
     status    = StringAttributeDescriptor("status")
-    protocols = NestedEntityListDescriptor('protocol', Protocol, 'protocols', extra=["name"])
-    stages    = NestedEntityListDescriptor('stage', Stage, 'stages', extra=["name"])
+    protocols = NestedEntityListDescriptor('protocol', Protocol, 'protocols', bag=["name"])
+    stages    = NestedEntityListDescriptor('stage', Stage, 'stages', bag=["name"])
 
 
 class ReagentType(Entity):
@@ -940,17 +948,20 @@ class ReagentType(Entity):
                     if child.attrib.get("name") == "Sequence":
                         self.sequence = child.attrib.get("value")
 
+
 class Queue(Entity):
     """Queue of a given step"""
     _URI = "queues"
     _TAG= "queue"
     _PREFIX = "que"
 
-    artifacts=NestedEntityListDescriptor("artifact", Artifact, "artifacts")
+    artifacts = NestedEntityListDescriptor("artifact", Artifact, "artifacts")
 
+# TODO: This is because classes can't be forward declared. I suggest using strings instead of classes,
+# as it's more readable to have the entity describe the whole thing.
 Sample.artifact          = EntityDescriptor('artifact', Artifact)
 StepActions.step         = EntityDescriptor('step', Step)
 Stage.workflow           = EntityDescriptor('workflow', Workflow)
-Artifact.workflow_stages = NestedEntityListDescriptor('workflow-stage', Stage, 'workflow-stages')
+Artifact.workflow_stages = NestedEntityListDescriptor('workflow-stage', WorkflowStage, 'workflow-stages', bag=['status', 'name'])
 Step.configuration       = EntityDescriptor('configuration', ProtocolStep)
 

@@ -100,6 +100,7 @@ class TestArtifactsMajor2Minor24(ClarityApiIntegrationTestCase):
                 ('Length Current (bp)', 287)}
         assert len(analyte.workflow_stages) == 8
         # Status and name can now be fetched without loading the entire stage object:
+        print {(stage.status, len(stage.name) > 0) for stage in analyte.workflow_stages}
         assert {(stage.status, len(stage.name) > 0) for stage in analyte.workflow_stages} == {('COMPLETE', True)}
 
         # Check if we can expand the sample:
@@ -133,6 +134,7 @@ class TestArtifactsMajor2Minor24(ClarityApiIntegrationTestCase):
 
         Each workflow should already have status and name.
         """
+        request_watcher.allow(2)
 
         # TODO: Change that watcher so it limits the calls beforehand. Then we have a way of stopping the test
         # right away if it's doing unexpected calls
@@ -141,7 +143,6 @@ class TestArtifactsMajor2Minor24(ClarityApiIntegrationTestCase):
         workflows = self.lims.get_workflows()
         statuses = set()
         for workflow in workflows:
-            self.assertEqual(workflow.fetch_state, FETCH_STATE_OVERVIEW)
             self.assertTrue(workflow.status in expected_statuses, "Status not defined: {}".format(workflow.status))
             self.assertTrue(len(workflow.name) > 0, workflow.name)
             statuses.add(workflow.status)
