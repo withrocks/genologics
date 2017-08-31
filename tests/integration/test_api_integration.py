@@ -5,28 +5,39 @@ from genologics import config
 from genologics.entities import *
 import logging
 from genologics.test_helper import RequestWatcher
+import abc
 
 """
 TODO: 
 * When loading from xml, check which descriptors have been tested. If there are any missing (not in the xml or not
 in the object) report that.
-
-TODO: The RequestWatcher currently fails when running all tests, some kind of sharing going on
 """
 
 request_watcher = RequestWatcher(__name__)
 
 
 class ClarityApiIntegrationTestCase(TestCase):
+    __metaclass__ = abc.ABCMeta
+
     def setUp(self):
-        # TODO: The state of these objects is shared!
         self.lims = Lims(config.BASEURI, config.USERNAME, config.PASSWORD)
-        # logging.basicConfig(level=logging.DEBUG)  # NOMERGE
-        # TODO: Assert that this is exactly v2,r24
+        assert set(self.lims.get_versions()) == {self.version_under_test()},\
+            "Run these tests with the configured version"
+
+    def version_under_test(self):
+        return tuple(self.__class__.__name__.split("_")[1:])
 
 
-class TestArtifactsMajor2Minor24(ClarityApiIntegrationTestCase):
-    """Tests GETing data. Contains no tests that should POST, PUT or DELETE
+@unittest.skip("Not implemented")
+class TestArtifactGroups_v2_r24(ClarityApiIntegrationTestCase):
+    """api/v2/artifactgroups"""
+    pass
+
+
+class TestArtifacts_v2_r24(ClarityApiIntegrationTestCase):
+    """api/v2/artifactgroups
+
+    Tests GETing data. Contains no tests that should POST, PUT or DELETE
 
     NOTE: This tests version v2r24 of the API. See: https://www.genologics.com/developer/4-2/
 
@@ -34,10 +45,6 @@ class TestArtifactsMajor2Minor24(ClarityApiIntegrationTestCase):
 
     Previous versions are not tested. Later versions should be put in another class, inheriting from this one.
     """
-
-    @unittest.skip("Implement")
-    def test_get_artifact_groups(self):
-        self.lims.get_artifactgroups()
 
     def test_get_artifacts(self):
         """Tests if we can list all artifacts in the system without a filter.
@@ -129,6 +136,19 @@ class TestArtifactsMajor2Minor24(ClarityApiIntegrationTestCase):
         assert len(researcher.first_name) > 0
         assert len(researcher.last_name) > 0
 
+
+class TestProtocols_v2_r24(ClarityApiIntegrationTestCase):
+    """
+    /api/v2/configuration/protocols
+    """
+    def test_get_protocols(self):
+        """Can fetch all protocols and view the name without extra cost"""
+        request_watcher.allow(1)
+        protocols = self.lims.get_protocols()
+        assert len(protocols[0].name) > 0
+
+
+class TestWorkflows_v2_r24(ClarityApiIntegrationTestCase):
     def test_get_workflows(self):
         """Fetches the workflow via /configuration/workflows via one HTTP call.
 

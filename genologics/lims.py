@@ -160,24 +160,26 @@ class Lims(object):
                                    'accept': 'application/xml'})
         return self.parse_response(r, accept_status_codes=[200, 201, 202])
 
-    def get_versions(self):
+    def get_versions(self, skip_prerelease=True):
         uri = urljoin(self.baseuri, 'api')
         r = requests.get(uri, auth=(self.username, self.password))
         root = self.parse_response(r)
         tag = nsmap('ver:versions')
         assert tag == root.tag
         for node in root.findall('version'):
-            version = Version(self, uri=node.attrib['uri'])
-            version.minor = node.attrib['minor']
-            version.major = node.attrib['major']
-            yield version
+            major = node.attrib['major']
+            minor = node.attrib['minor']
+            if major == "prerelease" and skip_prerelease:
+                continue
+            yield major, minor
 
     def check_version(self):
         """Raise ValueError if the version for this interface
         does not match any of the versions given for the API.
         """
-        for node in root.findall('version'):
-            if node.attrib['major'] == self.VERSION: return
+        for major, minor in self.get_versions():
+            if major == self.VERSION:
+                return
         raise ValueError('version mismatch')
 
     def validate_response(self, response, accept_status_codes=[200]):
@@ -442,7 +444,7 @@ class Lims(object):
     def get_protocols(self, name=None, add_info=False):
         """Get the list of existing protocols on the system """
         params = self._get_params(name=name)
-        return self._get_instances(Protocol, add_info=add_info, params=params)
+        return self._get_instances(Protocol, add_info=add_info, params=params, bag=["name"])
 
     def get_reagent_kits(self, name=None, start_index=None, add_info=False):
         """Get a list of reagent kits, filtered by keyword arguments.
