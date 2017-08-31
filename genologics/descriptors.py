@@ -36,29 +36,21 @@ class TagDescriptor(BaseDescriptor):
     """
     __metaclass__ = abc.ABCMeta
 
-    def _get(self, instance):
-        # TODO: Will probably just be __get__
-        # i.e. will be moved upwards when ready
-
+    def __get__(self, instance, cls):
         # Skip loading the instance if we have information in the extra dictionary. This
         # allows faster loading when the data is available in an overview page. An example is
         # that names of Stages and Protocols is available in the details page for Workflows.
-
-        # If we have loaded the details for this entity (instance.root is not None), we always use that.
-        # TODO: This will fail if the attribute is in extra but not in root, like is the case in WorkflowStage,
-        # so that requires a special descriptor
-        if self.available_in_bag(instance):
+        if self.is_available_in_bag(instance):
             return self.get_from_bag(instance)
 
-        # If not available, lazy load the entire object and try to get it from there
-        instance.get()
-        return self.parse_from_xml(instance.root)
+        # If this fails, we get the value from the details view
+        return self.get_from_loaded(instance, cls)
 
     @abc.abstractmethod
-    def parse_from_xml(self, root):
+    def get_from_loaded(self, instance, cls):
         pass
 
-    def available_in_bag(self, instance):
+    def is_available_in_bag(self, instance):
         """Returns True if the value can be fetched from the bag. If we have loaded the root, it should
         generally not be fetched from the bag, as we should then have all the details (an exception is the
         rare case where the root doesn't also have the bag value."""
@@ -82,15 +74,13 @@ class StringDescriptor(TagDescriptor):
     represented by an XML element.
     """
 
-    def parse_from_xml(self, root):
-        node = self.get_node(root)
+    def get_from_loaded(self, instance):
+        instance.get()
+        node = self.get_node(instance.root)
         if node is None:
             return None
         else:
             return node.text
-
-    def __get__(self, instance, cls):
-        return self._get(instance)
 
     def __set__(self, instance, value):
         instance.get()
@@ -107,12 +97,9 @@ class StringAttributeDescriptor(TagDescriptor):
     represented by an XML attribute.
     """
 
-    def parse_from_xml(self, root):
-        # Knows only how to fetch in this case, i.e. how to parse the xml
-        return root.attrib[self.tag]
-
-    def __get__(self, instance, cls):
-        return self._get(instance)
+    def get_from_loaded(self, instance):
+        instance.get()
+        return instance.root.attrib[self.tag]
 
     def __set__(self, instance, value):
         instance.get()
@@ -124,11 +111,8 @@ class OnlyInOverviewDescriptor(TagDescriptor):
     in a particular page. An example is the status flag in the WorkflowStage, where you can get extra information
     from a details page, but *not* the status information (it's only accessible in the artifact details view)
     """
-
-    def parse_from_xml(self, root):
-        pass
-
-    def __get__(self, instance, owner):
+    def get_from_loaded(self, instance):
+        # In this case, the value is only available in the details view
         return self.get_from_bag(instance)
 
     def __set__(self, instance, value):
@@ -139,51 +123,44 @@ class StringListDescriptor(TagDescriptor):
     """An instance attribute containing a list of strings
     represented by multiple XML elements.
     """
-    def parse_from_xml(self, root):
+    def get_from_loaded(self, instance):
+        instance.get()
         result = []
-        for node in root.findall(self.tag):
+        for node in instance.root.findall(self.tag):
             result.append(node.text)
         return result
-
-    def __get__(self, instance, cls):
-        return self._get(instance)
 
 
 class StringDictionaryDescriptor(TagDescriptor):
     """An instance attribute containing a dictionary of string key/values
     represented by a hierarchical XML element.
     """
-    def parse_from_xml(self, root):
+    def get_from_loaded(self, instance):
+        instance.get()
         result = dict()
-        node = root.find(self.tag)
+        node = instance.root.find(self.tag)
         if node is not None:
             for node2 in node.getchildren():
                 result[node2.tag] = node2.text
         return result
-
-    def __get__(self, instance, cls):
-        return self._get(instance)
 
 
 class IntegerDescriptor(StringDescriptor):
     """An instance attribute containing an integer value
     represented by an XMl element.
     """
-
-    def __get__(self, instance, cls):
-        text = super(IntegerDescriptor, self).__get__(instance, cls)
-        if text is not None:
-            return int(text)
+    def get_from_loaded(self, instance):
+        instance.get()
+        # TODO diff text = super(IntegerDescriptor, self).__get__(instance, cls)
+        #if text is not None:
+        #    return int(text)
 
 
 class IntegerAttributeDescriptor(TagDescriptor):
     """An instance attribute containing a integer value
     represented by an XML attribute.
     """
-    def parse_from_xml(self, root):
-        pass
-
-    def __get__(self, instance, cls):
+    def get_from_loaded(self, instance):
         instance.get()
         return int(instance.root.attrib[self.tag])
 
