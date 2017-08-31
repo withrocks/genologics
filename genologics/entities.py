@@ -12,7 +12,7 @@ from genologics.descriptors import StringDescriptor, StringDictionaryDescriptor,
     StringAttributeDescriptor, StringListDescriptor, DimensionDescriptor, IntegerDescriptor, \
     PlacementDictionaryDescriptor, InputOutputMapList, LocationDescriptor, ReagentLabelList, NestedEntityListDescriptor, \
     NestedStringListDescriptor, NestedAttributeListDescriptor, IntegerAttributeDescriptor, OnlyInOverviewDescriptor, \
-    TagDescriptor, FetchFromAttributesBag
+    TagDescriptor, FetchFromAttributesBag, NestedExpandedEntityListDescriptor
 
 try:
     from urllib.parse import urlsplit, urlparse, parse_qs, urlunparse
@@ -286,7 +286,8 @@ class Entity(object):
 
     def get(self, force=False):
         "Get the XML data for this instance."
-        if not force and self.root is not None: return
+        if not force and self.root is not None:
+            return
         self.root = self.lims.get(self.uri)
 
     def put(self):
@@ -338,6 +339,12 @@ class Entity(object):
         bag = FetchFromAttributesBag(node, bag_keys)
         instance = cls(lims, uri=node.attrib['uri'], bag=bag)
         return instance
+
+    def set_temporary_root(self, node):
+        # TODO: This is provided for when setting the node from an overview page, but we want to load it again from
+        # details if any property is set on the object (for correctness). Not decided what exactly should happen here yet
+        # NOMERGE
+        self.root = node
 
 
 class Lab(Entity):
@@ -899,14 +906,15 @@ class ProtocolStep(Entity):
 
     _TAG = 'step'
 
-    name                = StringAttributeDescriptor("name")
+    name                = StringAttributeDescriptor('name')
+    protocol_step_index = IntegerDescriptor('protocol-step-index')
     type                = EntityDescriptor('type', Processtype)
     permittedcontainers = NestedStringListDescriptor('container-type', 'container-types')
     queue_fields        = NestedAttributeListDescriptor('queue-field', 'queue-fields')
     step_fields         = NestedAttributeListDescriptor('step-field', 'step-fields')
     sample_fields       = NestedAttributeListDescriptor('sample-field', 'sample-fields')
     step_properties     = NestedAttributeListDescriptor('step_property', 'step_properties')
-    epp_triggers        = NestedAttributeListDescriptor('epp_trigger', 'epp_triggers')
+    epp_triggers        = NestedAttributeListDescriptor('epp-trigger', 'epp-triggers')
 
 
 class Protocol(Entity):
@@ -915,7 +923,14 @@ class Protocol(Entity):
     _TAG = 'protocol'
 
     name       = StringAttributeDescriptor('name')
-    steps      = NestedEntityListDescriptor('step', ProtocolStep, 'steps')
+    # TODO: This expands the entity right away. It's possible (perhaps not likely) that this will differ from
+    # the one in the details view, which might cause problems when setting any of the values on this object and then
+    # putting it back via the API (might in the worst case remove values).
+    # A way to ensure that doesn't cause problems, we can set an attribute on the entity saying that this was loaded
+    # from an overview page and that it needs to be loaded from the details if any property is set on the object.
+    # NOMERGE before deciding
+    # We could also add integration tests that confirm this is always equal, but that's not as safe.
+    steps      = NestedExpandedEntityListDescriptor('step', ProtocolStep, 'steps')
     properties = NestedAttributeListDescriptor('protocol-property', 'protocol-properties')
 
 

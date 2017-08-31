@@ -142,10 +142,18 @@ class TestProtocols_v2_r24(ClarityApiIntegrationTestCase):
     /api/v2/configuration/protocols
     """
     def test_get_protocols(self):
-        """Can fetch all protocols and view the name without extra cost"""
+        """Can fetch all protocols and view the name without extra cost
+
+        Then check if we can expand this workflow"""
         request_watcher.allow(1)
         protocols = self.lims.get_protocols()
         assert len(protocols[0].name) > 0
+
+        # Steps are actually fully loaded in the details of a protocol:
+        request_watcher.allow(1)
+        protocol = protocols[0]
+        for protocol_step in protocol.steps:
+            print(protocol_step.epp_triggers)
 
 
 class TestWorkflows_v2_r24(ClarityApiIntegrationTestCase):

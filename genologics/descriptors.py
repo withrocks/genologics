@@ -533,8 +533,25 @@ class NestedEntityListDescriptor(EntityListDescriptor):
         for node in rootnode.findall(self.tag):
             # NOTE: The name should correspond to the name on the object, not necessarily the same
             # as the name of the attribute.
+            # TODO: Use base class
             bag = FetchFromAttributesBag(node, self.bag_keys)
             result.append(self.klass(instance.lims, uri=node.attrib['uri'], bag=bag))
+        return result
+
+
+class NestedExpandedEntityListDescriptor(NestedEntityListDescriptor):
+    """Nested entities where the entities are already loaded in the parent object."""
+
+    def __get__(self, instance, cls):
+        instance.get()
+        result = []
+        rootnode = instance.root
+        if self.rootkey:
+            rootnode = rootnode.find(self.rootkey)
+        for node in rootnode.findall(self.tag):
+            instance = self.klass(instance.lims, uri=node.attrib['uri'])
+            instance.set_temporary_root(node)
+            result.append(instance)
         return result
 
 
