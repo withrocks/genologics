@@ -62,11 +62,11 @@ class TagDescriptor(BaseDescriptor):
     def __init__(self, tag):
         self.tag = tag
 
-    def get_node(self, root):
+    def get_node(self, instance):
         if self.tag:
-            return root.find(self.tag)
+            return instance.root.find(self.tag)
         else:
-            return root
+            return instance.root
 
 
 class StringDescriptor(TagDescriptor):
@@ -74,9 +74,9 @@ class StringDescriptor(TagDescriptor):
     represented by an XML element.
     """
 
-    def get_from_loaded(self, instance):
+    def get_from_loaded(self, instance, cls):
         instance.get()
-        node = self.get_node(instance.root)
+        node = self.get_node(instance)
         if node is None:
             return None
         else:
@@ -97,7 +97,7 @@ class StringAttributeDescriptor(TagDescriptor):
     represented by an XML attribute.
     """
 
-    def get_from_loaded(self, instance):
+    def get_from_loaded(self, instance, cls):
         instance.get()
         return instance.root.attrib[self.tag]
 
@@ -111,7 +111,7 @@ class OnlyInOverviewDescriptor(TagDescriptor):
     in a particular page. An example is the status flag in the WorkflowStage, where you can get extra information
     from a details page, but *not* the status information (it's only accessible in the artifact details view)
     """
-    def get_from_loaded(self, instance):
+    def get_from_loaded(self, instance, cls):
         # In this case, the value is only available in the details view
         return self.get_from_bag(instance)
 
@@ -123,7 +123,7 @@ class StringListDescriptor(TagDescriptor):
     """An instance attribute containing a list of strings
     represented by multiple XML elements.
     """
-    def get_from_loaded(self, instance):
+    def get_from_loaded(self, instance, cls):
         instance.get()
         result = []
         for node in instance.root.findall(self.tag):
@@ -135,7 +135,7 @@ class StringDictionaryDescriptor(TagDescriptor):
     """An instance attribute containing a dictionary of string key/values
     represented by a hierarchical XML element.
     """
-    def get_from_loaded(self, instance):
+    def get_from_loaded(self, instance, cls):
         instance.get()
         result = dict()
         node = instance.root.find(self.tag)
@@ -149,18 +149,17 @@ class IntegerDescriptor(StringDescriptor):
     """An instance attribute containing an integer value
     represented by an XMl element.
     """
-    def get_from_loaded(self, instance):
-        instance.get()
-        # TODO diff text = super(IntegerDescriptor, self).__get__(instance, cls)
-        #if text is not None:
-        #    return int(text)
+    def get_from_loaded(self, instance, cls):
+        text = super(IntegerDescriptor, self).__get__(instance, cls)
+        if text is not None:
+            return int(text)
 
 
 class IntegerAttributeDescriptor(TagDescriptor):
     """An instance attribute containing a integer value
     represented by an XML attribute.
     """
-    def get_from_loaded(self, instance):
+    def get_from_loaded(self, instance, cls):
         instance.get()
         return int(instance.root.attrib[self.tag])
 
@@ -170,7 +169,7 @@ class BooleanDescriptor(StringDescriptor):
     represented by an XMl element.
     """
 
-    def __get__(self, instance, cls):
+    def get_from_loaded(self, instance, cls):
         text = super(BooleanDescriptor, self).__get__(instance, cls)
         if text is not None:
             return text.lower() == 'true'
@@ -382,7 +381,7 @@ class UdfDictionaryDescriptor(BaseDescriptor):
         super(BaseDescriptor, self).__init__()
         self.rootkeys = args
 
-    def __get__(self, instance, cls):
+    def get_from_loaded(self, instance, cls):
         instance.get()
         self.value = UdfDictionary(instance, *self.rootkeys, udt=self._UDT)
         return self.value
@@ -407,10 +406,8 @@ class PlacementDictionaryDescriptor(TagDescriptor):
     """An instance attribute containing a dictionary of locations
     keys and artifact values represented by multiple XML elements.
     """
-    def parse_from_xml(self, root):
-        pass
 
-    def __get__(self, instance, cls):
+    def get_from_loaded(self, instance, cls):
         from genologics.entities import Artifact
         instance.get()
         self.value = dict()
@@ -425,7 +422,7 @@ class ExternalidListDescriptor(BaseDescriptor):
     external identifiers represented by multiple XML elements.
     """
 
-    def __get__(self, instance, cls):
+    def get_from_loaded(self, instance, cls):
         instance.get()
         result = []
         for node in instance.root.findall(nsmap('ri:externalid')):
@@ -441,17 +438,13 @@ class EntityDescriptor(TagDescriptor):
         # TODO: Support that klass is a string
         self.klass = klass
 
-    def parse_from_xml(self, root):
-        # Returns only uri
-        node = root.find(self.tag)
-        return node.attrib['uri'] if node is not None else None
-
-    def __get__(self, instance, cls):
-        uri = self._get(instance)
-        if uri is None:
+    def get_from_loaded(self, instance, cls):
+        instance.get()
+        node = instance.root.find(self.tag)
+        if node is None:
             return None
         else:
-            return self.klass(instance.lims, uri=uri)
+            return self.klass(instance.lims, uri=node.attrib['uri'])
 
     def __set__(self, instance, value):
         instance.get()
@@ -520,7 +513,6 @@ class NestedStringListDescriptor(StringListDescriptor):
 class NestedEntityListDescriptor(EntityListDescriptor):
     """same as EntityListDescriptor, but works on nested elements"""
 
-    # TODO: Naming for extra, e.g. bag? overview_bag?
     def __init__(self, tag, klass, rootkey=None, bag=[]):
         super(EntityListDescriptor, self).__init__(tag, klass)
         self.klass = klass
@@ -546,14 +538,13 @@ class DimensionDescriptor(TagDescriptor):
     """An instance attribute containing a dictionary specifying
     the properties of a dimension of a container type.
     """
-    def parse_from_xml(self, root):
-        node = root.find(self.tag)
+
+    def get_from_loaded(self, instance, cls):
+        instance.get()
+        node = instance.root.find(self.tag)
         return dict(is_alpha=node.find('is-alpha').text.lower() == 'true',
                     offset=int(node.find('offset').text),
                     size=int(node.find('size').text))
-
-    def __get__(self, instance, cls):
-        return self._get(instance)
 
 
 class LocationDescriptor(TagDescriptor):
@@ -561,14 +552,12 @@ class LocationDescriptor(TagDescriptor):
     specifying the location of an analyte in a container.
     """
 
-    def parse_from_xml(self, root):
-        node = root.find(self.tag)
-        return node.find('container').attrib['uri'], node.find('value').text
-
-    def __get__(self, instance, cls):
+    def get_from_loaded(self, instance, cls):
         from genologics.entities import Container
-        uri, value = self._get(instance)
-        return Container(instance.lims, uri=uri), value
+        instance.get()
+        node = instance.root.find(self.tag)
+        uri = node.find('container').attrib['uri']
+        return Container(instance.lims, uri=uri), node.find('value').text
 
 
 class ReagentLabelList(BaseDescriptor):
