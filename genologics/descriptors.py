@@ -25,15 +25,6 @@ logger = logging.getLogger(__name__)
 
 class BaseDescriptor(object):
     "Abstract base descriptor for an instance attribute."
-
-    def __get__(self, instance, cls):
-        raise NotImplementedError
-
-
-class TagDescriptor(BaseDescriptor):
-    """Abstract base descriptor for an instance attribute
-    represented by an XML element.
-    """
     __metaclass__ = abc.ABCMeta
 
     def __get__(self, instance, cls):
@@ -50,14 +41,18 @@ class TagDescriptor(BaseDescriptor):
     def get_from_loaded(self, instance, cls):
         pass
 
-    def is_available_in_bag(self, instance):
-        """Returns True if the value can be fetched from the bag. If we have loaded the root, it should
-        generally not be fetched from the bag, as we should then have all the details (an exception is the
-        rare case where the root doesn't also have the bag value."""
-        return instance.bag is not None and instance.root is None and self.tag in instance.bag
-
     def get_from_bag(self, instance):
-        return instance.bag[self.tag]
+        raise NotImplementedError()
+
+    def is_available_in_bag(self, instance):
+        return False
+
+
+class TagDescriptor(BaseDescriptor):
+    """Abstract base descriptor for an instance attribute
+    represented by an XML element.
+    """
+    __metaclass__ = abc.ABCMeta
 
     def __init__(self, tag):
         self.tag = tag
@@ -67,6 +62,15 @@ class TagDescriptor(BaseDescriptor):
             return instance.root.find(self.tag)
         else:
             return instance.root
+
+    def get_from_bag(self, instance):
+        return instance.bag[self.tag]
+
+    def is_available_in_bag(self, instance):
+        """Returns True if the value can be fetched from the bag. If we have loaded the root, it should
+        generally not be fetched from the bag, as we should then have all the details (an exception is the
+        rare case where the root doesn't also have the bag value."""
+        return instance.bag is not None and instance.root is None and self.tag in instance.bag
 
 
 class StringDescriptor(TagDescriptor):
@@ -170,7 +174,7 @@ class BooleanDescriptor(StringDescriptor):
     """
 
     def get_from_loaded(self, instance, cls):
-        text = super(BooleanDescriptor, self).__get__(instance, cls)
+        text = super(BooleanDescriptor, self).get_from_loaded(instance, cls)
         if text is not None:
             return text.lower() == 'true'
 
@@ -563,7 +567,7 @@ class LocationDescriptor(TagDescriptor):
 class ReagentLabelList(BaseDescriptor):
     """An instance attribute yielding a list of reagent labels"""
 
-    def __get__(self, instance, cls):
+    def get_from_loaded(self, instance, cls):
         instance.get()
         self.value = []
         for node in instance.root.findall('reagent-label'):
@@ -584,7 +588,7 @@ class InputOutputMapList(BaseDescriptor):
         super(BaseDescriptor, self).__init__()
         self.rootkeys = args
 
-    def __get__(self, instance, cls):
+    def get_from_loaded(self, instance, cls):
         instance.get()
         self.value = []
         rootnode = instance.root
