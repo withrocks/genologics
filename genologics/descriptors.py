@@ -397,11 +397,27 @@ class ExternalidListDescriptor(BaseDescriptor):
 
 
 class EntityDescriptor(TagDescriptor):
-    "An instance attribute referencing another entity instance."
+    """An instance attribute referencing another entity instance."""
 
     def __init__(self, tag, klass):
+        """Initializes an entity with an XML tag and a class object representing the entity.
+
+        The klass can be either a string or a class. If it's a string it should be a class name from the module
+        genologics.entities.
+        """
         super(EntityDescriptor, self).__init__(tag)
-        self.klass = klass
+        self._klass = klass
+
+    @property
+    def klass(self):
+        if isinstance(self._klass, str):
+            # Import here rather than at the module level to avoid circular dependency issues
+            import genologics.entities
+            self._klass = getattr(genologics.entities, self._klass)
+            expected_superclass = genologics.entities.Entity
+            if not isinstance(self._klass, expected_superclass):
+                raise TypeError("'{}' is not a subclass of {}".format(self._klass, expected_superclass))
+        return self._klass
 
     def __get__(self, instance, cls):
         instance.get()
@@ -480,7 +496,7 @@ class NestedEntityListDescriptor(EntityListDescriptor):
 
     def __init__(self, tag, klass, *args):
         super(EntityListDescriptor, self).__init__(tag, klass)
-        self.klass = klass
+
         self.tag = tag
         self.rootkeys = args
 
