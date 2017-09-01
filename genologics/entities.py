@@ -521,7 +521,7 @@ class Processtype(Entity):
 
     name = StringAttributeDescriptor('name')
     field_definitions = NestedAttributeListDescriptor('field-definition')
-    parameters = NestedAttributeListDescriptor('parameter')
+    parameters = NestedEntityListDescriptor('parameter', 'Parameter')
 
 
 class Udfconfig(Entity):
@@ -1017,6 +1017,14 @@ class Queue(Entity):
     _PREFIX = "que"
 
     artifacts = NestedEntityListDescriptor("artifact", Artifact, "artifacts")
+
+
+class Parameter(Entity):
+    """Parameter in ProcessType"""
+    _TAG = "parameter"
+
+    name = StringAttributeDescriptor('name')
+    string = StringDescriptor('string')
 
 # TODO: This is because classes can't be forward declared. I suggest using strings instead of classes,
 # as it's more readable to have the entity describe the whole thing.

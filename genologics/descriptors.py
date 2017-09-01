@@ -438,9 +438,20 @@ class EntityDescriptor(TagDescriptor):
     "An instance attribute referencing another entity instance."
 
     def __init__(self, tag, klass):
+        """Initializes an entity with an XML tag and a class object representing the entity.
+
+        The klass can be either a string or a class. If it's a string it should be a class name from the module
+        genologics.entities.
+        """
         super(EntityDescriptor, self).__init__(tag)
-        # TODO: Support that klass is a string
-        self.klass = klass
+        self._klass = klass
+
+    @property
+    def klass(self):
+        if isinstance(self._klass, str):
+            import genologics.entities
+            self._klass = getattr(genologics.entities, self._klass)
+        return self._klass
 
     def get_from_loaded(self, instance, cls):
         instance.get()
@@ -538,7 +549,10 @@ class NestedEntityListDescriptor(EntityListDescriptor):
 
     def __init__(self, tag, klass, rootkey=None, bag=[]):
         super(EntityListDescriptor, self).__init__(tag, klass)
-        self.klass = klass
+
+        # NOTE: The klass can now either be a string or a class, but we don't cast it directly to one, because
+        # the descriptor's __init__ method is called before the entities module is loaded.
+        self._klass
         self.tag = tag
         self.rootkey = rootkey  # TODO: this was *args, use list?
         self.bag_keys = bag
@@ -557,7 +571,8 @@ class NestedEntityListDescriptor(EntityListDescriptor):
             # TODO: What if the uri is not in the attrib? Should it not be modelled as an entity?
             # This is the case e.g. in the Transition instance on a ProtocolStep
             uri = node.attrib['uri'] if 'uri' in node.attrib else None
-            child = self.klass(instance.lims, uri=uri, bag=bag)
+            _create_new = uri is None
+            child = self.klass(instance.lims, uri=uri, bag=bag, _create_new=_create_new)
             result.append(child)
         return result
 
