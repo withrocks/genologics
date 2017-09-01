@@ -154,7 +154,7 @@ class IntegerDescriptor(StringDescriptor):
     represented by an XMl element.
     """
     def get_from_loaded(self, instance, cls):
-        text = super(IntegerDescriptor, self).__get__(instance, cls)
+        text = super(IntegerDescriptor, self).get_from_loaded(instance, cls)
         if text is not None:
             return int(text)
 
@@ -474,6 +474,25 @@ class EntityListDescriptor(EntityDescriptor):
         return result
 
 
+class AttributeDictionary(dict):
+    """Allows accessing the dictionary as a regular object. Keys in the dictionary are
+    changed to python names.
+    """
+    def __init__(self, *args, **kwargs):
+        super(AttributeDictionary, self).__init__(*args, **kwargs)
+        # NOTE: We assume that there is never a collision. That needs to be validated by tests.
+        self.mapping = {self._to_py_name(key): key for key in self}
+
+    @staticmethod
+    def _to_py_name(xml_attrib_name):
+        return xml_attrib_name.replace("-", "_")
+
+    def __getattr__(self, item):
+        try:
+            return self[self.mapping[item]]
+        except KeyError:
+            raise AttributeError(item)
+
 class NestedAttributeListDescriptor(StringAttributeDescriptor):
     """An instance yielding a list of dictionnaries of attributes
        for a nested xml list of XML elements"""
@@ -490,7 +509,7 @@ class NestedAttributeListDescriptor(StringAttributeDescriptor):
         for rootkey in self.rootkeys:
             rootnode = rootnode.find(rootkey)
         for node in rootnode.findall(self.tag):
-            result.append(node.attrib)
+            result.append(AttributeDictionary(node.attrib))
         return result
 
 
@@ -535,7 +554,11 @@ class NestedEntityListDescriptor(EntityListDescriptor):
             # as the name of the attribute.
             # TODO: Use base class
             bag = FetchFromAttributesBag(node, self.bag_keys)
-            result.append(self.klass(instance.lims, uri=node.attrib['uri'], bag=bag))
+            # TODO: What if the uri is not in the attrib? Should it not be modelled as an entity?
+            # This is the case e.g. in the Transition instance on a ProtocolStep
+            uri = node.attrib['uri'] if 'uri' in node.attrib else None
+            child = self.klass(instance.lims, uri=uri, bag=bag)
+            result.append(child)
         return result
 
 

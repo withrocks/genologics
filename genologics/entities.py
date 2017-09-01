@@ -347,6 +347,23 @@ class Entity(object):
         self.root = node
 
 
+class ControlType(Entity):
+    """ControlType in ProtocolStep"""
+
+    name  = StringAttributeDescriptor('name')
+
+class EntityElement(object):
+    pass
+
+class Transition(EntityElement):
+    """Transition in ProtocolStep"""
+    def __init__(self, lims, uri=None, id=None, _create_new=False, bag=None):
+        pass
+
+    next_step_uri = StringAttributeDescriptor('next-step-uri')
+    sequence      = IntegerAttributeDescriptor('sequence')
+    name          = StringAttributeDescriptor('name')
+
 class Lab(Entity):
     "Lab; container of researchers."
 
@@ -503,7 +520,8 @@ class Processtype(Entity):
     _PREFIX = 'ptp'
 
     name = StringAttributeDescriptor('name')
-    # XXX
+    field_definitions = NestedAttributeListDescriptor('field-definition')
+    parameters = NestedAttributeListDescriptor('parameter')
 
 
 class Udfconfig(Entity):
@@ -906,15 +924,28 @@ class ProtocolStep(Entity):
 
     _TAG = 'step'
 
-    name                = StringAttributeDescriptor('name')
-    protocol_step_index = IntegerDescriptor('protocol-step-index')
-    type                = EntityDescriptor('type', Processtype)
-    permittedcontainers = NestedStringListDescriptor('container-type', 'container-types')
-    queue_fields        = NestedAttributeListDescriptor('queue-field', 'queue-fields')
-    step_fields         = NestedAttributeListDescriptor('step-field', 'step-fields')
-    sample_fields       = NestedAttributeListDescriptor('sample-field', 'sample-fields')
-    step_properties     = NestedAttributeListDescriptor('step_property', 'step_properties')
-    epp_triggers        = NestedAttributeListDescriptor('epp-trigger', 'epp-triggers')
+    name                     = StringAttributeDescriptor('name')
+    protocol_step_index      = IntegerDescriptor('protocol-step-index')
+    process_type             = EntityDescriptor('process-type', Processtype)  # NOTE: This was set to type, but in the current version it's process-type
+    # TODO: In the instance being tested, this is "permitted-containers", not "container-types". Using the opportunity
+    # to change the name of the attribute from permittedcontainers to permitted_containers.
+    # Check if the object is being used different in some other place
+    permitted_containers      = NestedStringListDescriptor('container-type', 'permitted-containers')
+
+    # TODO: check specs for these
+    #permitted_reagent_categories
+    #required_reagent_kits
+
+    permitted_control_types   = NestedEntityListDescriptor('control-type', ControlType, 'permitted-control-types')
+    # NOTE: There is a limitation with these that the attributes are always strings, not e.g. ints.
+    # Consider having a class instead (e.g. Transition)
+    transitions               = NestedAttributeListDescriptor('transition', 'transitions')
+    default_grouping          = StringDescriptor('default-grouping')
+    queue_fields              = NestedAttributeListDescriptor('queue-field', 'queue-fields')
+    step_fields               = NestedAttributeListDescriptor('step-field', 'step-fields')
+    sample_fields             = NestedAttributeListDescriptor('sample-field', 'sample-fields')
+    step_properties           = NestedAttributeListDescriptor('step-property', 'step-properties')
+    epp_triggers              = NestedAttributeListDescriptor('epp-trigger', 'epp-triggers')
 
 
 class Protocol(Entity):

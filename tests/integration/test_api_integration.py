@@ -72,6 +72,7 @@ class TestArtifacts_v2_r24(ClarityApiIntegrationTestCase):
         request_watcher.allow(1)  # Now limit it again
         analyte = random.choice(analytes)
         assert len(analyte.name) > 0
+        print analyte.sample
 
     # NO_MERGE: The following tests are using specific names for completeness. Don't merge into upstream
     # before it has at least been made more generic (e.g. configuration file)
@@ -141,6 +142,49 @@ class TestProtocols_v2_r24(ClarityApiIntegrationTestCase):
     """
     /api/v2/configuration/protocols
     """
+    def validate_process_type(self, process_type, expand_children=False):
+        print "Validating", process_type
+        # TODO: Each field definition is a UDF but we are not able to fetch the details
+        assert len(process_type.field_definitions) > 0
+        assert all([len(udf.name) > 0 for udf in process_type.field_definitions])
+        assert len(process_type.parameters) > 0
+        print process_type.parameters[0]
+
+    def validate_protocol_step(self, protocol_step, expand_children=False):
+        assert protocol_step.protocol_step_index >= 1
+        assert protocol_step.epp_triggers is not None
+        assert protocol_step.process_type is not None
+        if expand_children:
+            self.validate_process_type(protocol_step.process_type)
+        assert len(protocol_step.permitted_containers) >= 0
+        if len(protocol_step.permitted_control_types) > 0:
+            control_type = protocol_step.permitted_control_types[0]
+            assert len(control_type.name) > 0
+        for transition in protocol_step.transitions:
+            assert len(transition.next_step_uri) > 0
+            assert int(transition.sequence) > 0
+            assert len(transition.name) > 0
+        for queue_field in protocol_step.queue_fields:
+            # TODO: Why are these not represented by a type that knows about bool etc?
+            assert queue_field.detail in ["false", "true"]
+            assert queue_field.style in ["BUILT_IN", "USER_DEFINED"], queue_field.style
+            assert queue_field.attach_to in ["Analyte", "Container", "Sample", "Project", "ResultFile"], queue_field.attach_to
+        for step_field in protocol_step.step_fields:
+            assert step_field.style in ["USER_DEFINED"]
+            assert step_field.attach_to in ["ConfiguredProcess"]
+            assert len(step_field.name) > 0
+        for sample_field in protocol_step.sample_fields:
+            assert sample_field.style in ["BUILT_IN", "USER_DEFINED"], sample_field.style
+            assert sample_field.attach_to in ["Analyte", "Container", "Sample", "Project", "ResultFile"], sample_field.attach_to
+            assert len(sample_field.name) > 0
+        for step_property in protocol_step.step_properties:
+            assert step_property.value is not None
+            assert len(step_property.name) > 0
+        for epp_trigger in protocol_step.epp_triggers:
+            if hasattr(epp_trigger, "type"):
+                assert epp_trigger.type in ["MANUAL", "UNUSED", "AUTOMATIC"], epp_trigger.type
+
+
     def test_get_protocols(self):
         """Can fetch all protocols and view the name without extra cost
 
@@ -152,8 +196,8 @@ class TestProtocols_v2_r24(ClarityApiIntegrationTestCase):
         # Steps are actually fully loaded in the details of a protocol:
         request_watcher.allow(1)
         protocol = protocols[0]
-        for protocol_step in protocol.steps:
-            print(protocol_step.epp_triggers)
+
+        self.validate_protocol_step(protocol.steps[1], True)
 
 
 class TestWorkflows_v2_r24(ClarityApiIntegrationTestCase):
