@@ -269,7 +269,8 @@ class UdfDictionary(object):
                     raise TypeError('URI UDF requires str or punycode (unicode) value')
                 value = str(value)
             else:
-                raise NotImplemented("UDF type '%s'" % vtype)
+                # TODO: This fix is also needed with py2, right?
+                raise NotImplementedError("UDF type '%s'" % vtype)
             if not isinstance(value, str):
                 if not self._is_string(value):
                     value = str(value).encode('UTF-8')
@@ -348,7 +349,7 @@ class UdfDictionaryDescriptor(BaseDescriptor):
     _UDT = False
 
     def __init__(self, *args):
-        super(BaseDescriptor, self).__init__()
+        super(UdfDictionaryDescriptor, self).__init__()
         self.rootkeys = args
 
     def __get__(self, instance, cls):
@@ -444,7 +445,7 @@ class NestedAttributeListDescriptor(StringAttributeDescriptor):
        for a nested xml list of XML elements"""
 
     def __init__(self, tag, *args):
-        super(StringAttributeDescriptor, self).__init__(tag)
+        super(NestedAttributeListDescriptor, self).__init__(tag)
         self.tag = tag
         self.rootkeys = args
 
@@ -464,7 +465,7 @@ class NestedStringListDescriptor(StringListDescriptor):
         for a nested list of xml elements"""
 
     def __init__(self, tag, *args):
-        super(StringListDescriptor, self).__init__(tag)
+        super(NestedStringListDescriptor, self).__init__(tag)
         self.tag = tag
         self.rootkeys = args
 
@@ -483,7 +484,7 @@ class NestedEntityListDescriptor(EntityListDescriptor):
     """same as EntityListDescriptor, but works on nested elements"""
 
     def __init__(self, tag, klass, rootkey=None, extra=[]):
-        super(EntityListDescriptor, self).__init__(tag, klass)
+        super(NestedEntityListDescriptor, self).__init__(tag, klass)
         self.klass = klass
         self.tag = tag
         self.rootkey = rootkey
@@ -550,7 +551,7 @@ class InputOutputMapList(BaseDescriptor):
     """
 
     def __init__(self, *args):
-        super(BaseDescriptor, self).__init__()
+        super(InputOutputMapList, self).__init__()
         self.rootkeys = args
 
     def __get__(self, instance, cls):
