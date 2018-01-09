@@ -2,8 +2,6 @@ import os
 import sys
 import warnings
 
-import ConfigParser
-
 '''
 Usage:
 from genologics.config import BASEURI, USERNAME, PASSWORD
@@ -15,8 +13,21 @@ BASEURI, USERNAME, PASSWORD, VERSION, MAIN_LOG = config.load_config(specified_co
 
 spec_config = None
 
+def get_parser():
+    # NOTE: SafeConfigParser is not available in py2
+    pass
+    try:
+        # py2
+        import ConfigParser
+        return ConfigParser.SafeConfigParser()
+    except ModuleNotFoundError:
+        # py3
+        from configparser import ConfigParser
+        return ConfigParser()
+
+
 def get_config_info(config_file):
-    config = ConfigParser.SafeConfigParser()
+    config = get_parser()
     config.readfp(open(config_file))
     
     
@@ -40,7 +51,7 @@ def load_config(specified_config = None):
     if specified_config != None:
         config_file = specified_config
     else:
-        config = ConfigParser.SafeConfigParser()
+        config = get_parser()
         try:
             conf_file = config.read([os.path.expanduser('~/.genologicsrc'), '.genologicsrc',
                         'genologics.conf', 'genologics.cfg', '/etc/genologics.conf'])
