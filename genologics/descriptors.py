@@ -425,20 +425,63 @@ class EntityDescriptor(TagDescriptor):
             instance.root.append(node)
         node.attrib['uri'] = value.uri
 
-
 class EntityListDescriptor(EntityDescriptor):
     """An instance attribute yielding a list of entity instances
     represented by multiple XML elements.
     """
 
     def __get__(self, instance, cls):
+        print("Getting", instance, cls, self.tag)
         instance.get()
         result = []
+        print(ElementTree.tostring(instance.root, encoding='utf8', method='xml'))
         for node in instance.root.findall(self.tag):
+            print(node)
             result.append(self.klass(instance.lims, uri=node.attrib['uri']))
 
         return result
 
+class EntityDescriptor2(TagDescriptor):
+    "An instance attribute referencing another entity instance."
+
+    def __init__(self, tag, klass):
+        super(EntityDescriptor2, self).__init__(tag)
+        self.klass = klass
+
+    def __get__(self, instance, cls):
+        instance.get()
+        node = instance.root.find(self.tag)
+        if node is None:
+            return None
+        else:
+            return self.klass(instance.lims, uri=node.attrib['uri'])
+
+    def __set__(self, instance, value):
+        instance.get()
+        node = self.get_node(instance)
+        if node is None:
+            # create the new tag
+            node = ElementTree.Element(self.tag)
+            instance.root.append(node)
+        node.attrib['uri'] = value.uri
+
+class EntityListDescriptor2(EntityDescriptor):
+    """An instance attribute yielding a list of entity instances
+    represented by multiple XML elements.
+    """
+
+    def __get__(self, instance, cls):
+        print("Getting", instance, cls, self.tag)
+        instance.get()
+        result = []
+        # NOTE: This is just a temporary hack to get this to work, i.e. entities that don't have a uri
+        print(ElementTree.tostring(instance.root, encoding='utf8', method='xml'))
+        for ix, node in enumerate(instance.root.findall(self.tag)):
+            entity = self.klass(instance.lims, uri=instance.uri + "#{}/{}".format(self.tag, ix))
+            entity.root = node
+            result.append(entity)
+
+        return result
 
 class NestedAttributeListDescriptor(StringAttributeDescriptor):
     """An instance yielding a list of dictionnaries of attributes

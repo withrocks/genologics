@@ -11,7 +11,8 @@ from genologics.descriptors import StringDescriptor, StringDictionaryDescriptor,
     UdtDictionaryDescriptor, ExternalidListDescriptor, EntityDescriptor, BooleanDescriptor, EntityListDescriptor, \
     StringAttributeDescriptor, StringListDescriptor, DimensionDescriptor, IntegerDescriptor, \
     PlacementDictionaryDescriptor, InputOutputMapList, LocationDescriptor, ReagentLabelList, NestedEntityListDescriptor, \
-    NestedStringListDescriptor, NestedAttributeListDescriptor, IntegerAttributeDescriptor
+    NestedStringListDescriptor, NestedAttributeListDescriptor, IntegerAttributeDescriptor, \
+    EntityListDescriptor2
 
 try:
     from urllib.parse import urlsplit, urlparse, parse_qs, urlunparse
@@ -475,13 +476,21 @@ class Container(Entity):
         return result
 
 
+class Parameter(Entity):
+    name = StringAttributeDescriptor('name')
+    string = StringDescriptor('string')
+
+
 class Processtype(Entity):
     _TAG = 'process-type'
     _URI = 'processtypes'
     _PREFIX = 'ptp'
 
     name = StringAttributeDescriptor('name')
+    parameters = EntityListDescriptor2("parameter", Parameter)
     # XXX
+
+
 
 
 class Udfconfig(Entity):
