@@ -49,17 +49,20 @@ class Lims(object):
 
     VERSION = 'v2'
 
-    def __init__(self, baseuri, username, password, version=VERSION):
+    def __init__(self, baseuri, username, password=None, version=VERSION, auth_token=None):
         """baseuri: Base URI for the GenoLogics server, excluding
                     the 'api' or version parts!
                     For example: https://genologics.scilifelab.se:8443/
         username: The account name of the user to login as.
         password: The password for the user account to login as.
-        version: The optional LIMS API version, by default 'v2' 
+        version: The optional LIMS API version, by default 'v2'
+        auth_token: The MD5 hash of the token as sent by requests. Can be provided instead of the password.
+                    If provided, the password will be ignored
         """
         self.baseuri = baseuri.rstrip('/') + '/'
         self.username = username
         self.password = password
+        self.auth_token = auth_token
         self.VERSION = version
         self.cache = dict()
         # For optimization purposes, enables requests to persist connections
@@ -78,16 +81,8 @@ class Lims(object):
 
     def get(self, uri, params=dict()):
         "GET data from the URI. Return the response XML as an ElementTree."
-        try:
-            r = self.request_session.get(uri, params=params,
-                                         auth=(self.username, self.password),
-                                         headers=dict(accept='application/xml'),
-                                         timeout=TIMEOUT)
-        except requests.exceptions.Timeout as e:
-            raise type(e)("{0}, Error trying to reach {1}".format(e.message, uri))
-
-        else:
-            return self.parse_response(r)
+        r = self._get(uri, params)
+        return self.parse_response(r)
 
     def get_file_contents(self, id=None, uri=None):
         """Returns the contents of the file of <ID> or <uri>"""
@@ -154,12 +149,25 @@ class Lims(object):
                                    'accept': 'application/xml'})
         return self.parse_response(r, accept_status_codes=[200, 201, 202])
 
+    def _get(self, uri, params):
+        try:
+            auth = (self.username, self.password) if not self.auth_token else None
+            headers = dict(accept='application/xml')
+            if self.auth_token:
+                headers["Authorization"] = self.auth_token
+            return self.request_session.get(uri, params=params,
+                                            auth=auth,
+                                            headers=headers,
+                                            timeout=TIMEOUT)
+        except requests.exceptions.Timeout as e:
+            raise type(e)("{0}, Error trying to reach {1}".format(e.message, uri))
+
     def check_version(self):
         """Raise ValueError if the version for this interface
         does not match any of the versions given for the API.
         """
         uri = urljoin(self.baseuri, 'api')
-        r = requests.get(uri, auth=(self.username, self.password))
+        r = self._get(uri, None)
         root = self.parse_response(r)
         tag = nsmap('ver:versions')
         assert tag == root.tag
